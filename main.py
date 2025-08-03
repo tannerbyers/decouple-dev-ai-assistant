@@ -204,11 +204,22 @@ def fetch_open_tasks():
 
 @app.get("/")
 async def health_check():
+    """Health check endpoint for load balancers and monitoring."""
     logger.info("Health check endpoint accessed")
     return {
         "status": "healthy",
-        "timestamp": int(time.time())
+        "timestamp": int(time.time()),
+        "test_mode": TEST_MODE,
+        "slack_bot_token_set": bool(SLACK_BOT_TOKEN),
+        "slack_signing_secret_set": bool(SLACK_SIGNING_SECRET),
+        "notion_api_key_set": bool(NOTION_API_KEY),
+        "openai_api_key_set": bool(OPENAI_API_KEY)
     }
+
+@app.get("/health")
+async def health_check_alt():
+    """Alternative health check endpoint for compatibility."""
+    return await health_check()
 
 def verify_slack_signature(body: bytes, timestamp: str, signature: str) -> bool:
     # Handle None values (e.g., in tests)
