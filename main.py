@@ -16,9 +16,21 @@ NOTION_DB_ID = os.getenv("NOTION_DB_ID")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+# Setup logging with more explicit configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # Ensure logs go to stdout
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Log startup info
+logger.info("Application starting up...")
+logger.info(f"TEST_MODE: {TEST_MODE}")
+logger.info(f"Environment variables loaded - SLACK_BOT_TOKEN: {'SET' if SLACK_BOT_TOKEN else 'NOT SET'}")
+logger.info(f"Environment variables loaded - SLACK_SIGNING_SECRET: {'SET' if SLACK_SIGNING_SECRET else 'NOT SET'}")
 
 # Initialize ChatOpenAI only if API key is available
 if OPENAI_API_KEY:
@@ -60,6 +72,16 @@ def fetch_open_tasks():
     except Exception as e:
         logger.error(f"Unexpected error fetching tasks: {e}")
         return ["Error accessing task database"]
+
+@app.get("/")
+async def health_check():
+    logger.info("Health check endpoint accessed")
+    return {
+        "status": "healthy",
+        "test_mode": TEST_MODE,
+        "slack_bot_token_set": bool(SLACK_BOT_TOKEN),
+        "slack_signing_secret_set": bool(SLACK_SIGNING_SECRET)
+    }
 
 def verify_slack_signature(body: bytes, timestamp: str, signature: str) -> bool:
     # Handle None values (e.g., in tests)
