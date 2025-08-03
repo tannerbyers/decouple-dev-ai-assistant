@@ -5,3 +5,4 @@ notion-client
 openai
 requests
 langchain
+gunicorn
