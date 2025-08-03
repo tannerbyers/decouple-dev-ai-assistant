@@ -41,7 +41,7 @@ This project aims to enhance productivity by leveraging AI to handle tasks, espe
   gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
   ```
 
-Configurations for deployment are provided in `render.yaml`.
+Configurations for deployment are provided in `render.yaml`. Ensure all sensitive environment variables are securely managed.
 
 ### Testing
 

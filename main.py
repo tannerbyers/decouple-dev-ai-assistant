@@ -26,7 +26,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Log startup info
+# Validate required environment variables
+required_vars = {
+    "SLACK_BOT_TOKEN": SLACK_BOT_TOKEN,
+    "SLACK_SIGNING_SECRET": SLACK_SIGNING_SECRET,
+    "NOTION_API_KEY": NOTION_API_KEY,
+    "NOTION_DB_ID": NOTION_DB_ID,
+    "OPENAI_API_KEY": OPENAI_API_KEY
+}
+
+missing_vars = [name for name, value in required_vars.items() if not value]
+if missing_vars and not TEST_MODE:
+    error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
+    logger.error(error_msg)
+    raise ValueError(error_msg)
+
+# Log startup info  
 logger.info("Application starting up...")
 logger.info(f"TEST_MODE: {TEST_MODE}")
 logger.info(f"Environment variables loaded - SLACK_BOT_TOKEN: {'SET' if SLACK_BOT_TOKEN else 'NOT SET'}")
@@ -62,8 +77,8 @@ def fetch_open_tasks():
         
         for i, row in enumerate(results["results"]):
             try:
-                # Debug logging for first few rows
-                if i < 3:  # Only log first 3 rows to avoid spam
+                # Debug logging for first few rows (only in TEST_MODE)
+                if TEST_MODE and i < 3:  # Only log first 3 rows to avoid spam
                     logger.info(f"Row {i} properties keys: {list(row.get('properties', {}).keys())}")
                     task_prop = row.get("properties", {}).get("Task", {})
                     logger.info(f"Row {i} Task property: {task_prop}")
@@ -80,10 +95,11 @@ def fetch_open_tasks():
                     
                 if title.strip():  # Only add non-empty titles
                     tasks.append(title)
-                    logger.info(f"Successfully parsed task: '{title}'")
+                    if TEST_MODE:
+                        logger.info(f"Successfully parsed task: '{title}'")
             except (KeyError, IndexError, TypeError) as e:
                 logger.warning(f"Failed to parse task {i}: {e}")
-                if i < 3:  # Only log full row data for first few to avoid spam
+                if TEST_MODE and i < 3:  # Only log full row data for first few to avoid spam
                     logger.warning(f"Row {i} full data: {json.dumps(row, indent=2)}")
                 continue
         return tasks
@@ -99,9 +115,7 @@ async def health_check():
     logger.info("Health check endpoint accessed")
     return {
         "status": "healthy",
-        "test_mode": TEST_MODE,
-        "slack_bot_token_set": bool(SLACK_BOT_TOKEN),
-        "slack_signing_secret_set": bool(SLACK_SIGNING_SECRET)
+        "timestamp": int(time.time())
     }
 
 def verify_slack_signature(body: bytes, timestamp: str, signature: str) -> bool:
@@ -128,10 +142,11 @@ def verify_slack_signature(body: bytes, timestamp: str, signature: str) -> bool:
 
 @app.post("/slack")
 async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = Header(None), x_slack_signature: Optional[str] = Header(None)):
-    # Log incoming request headers for debugging
-    logger.info(f"Incoming Slack request - Headers: {dict(req.headers)}")
-    logger.info(f"Timestamp header: {x_slack_request_timestamp}")
-    logger.info(f"Signature header: {x_slack_signature}")
+    # Log incoming request headers (only in TEST_MODE to reduce noise)
+    if TEST_MODE:
+        logger.info(f"Incoming Slack request - Headers: {dict(req.headers)}")
+        logger.info(f"Timestamp header: {x_slack_request_timestamp}")
+        logger.info(f"Signature header: {x_slack_signature}")
     logger.info(f"TEST_MODE: {TEST_MODE}")
     
     # Get raw body first to check if it's empty
@@ -195,53 +210,18 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
             command = body.get("command")
             
             logger.info(f"Slash command: {command}, text: {user_text}, channel: {channel}")
-            
-        elif "event" in body:
-            logger.info("Processing event subscription")
-            slack_msg = SlackMessage(**body)
-            event = slack_msg.event
-
-            if event.get("subtype") == "bot_message":
-                return {"ok": True}
-
-            user_text = event["text"]
-            channel = event["channel"]
-            
-        else:
-            logger.error(f"Unknown Slack request format: {body}")
-            return {"ok": True}
-
-        # Get tasks and generate AI response
-        tasks = fetch_open_tasks()
-        task_list = "\n".join(f"- {t}" for t in tasks)
-
-        if not llm:
-            response = "Sorry, OpenAI API key is not configured. Please set OPENAI_API_KEY environment variable."
-        else:
-            try:
-                prompt = f"""You are OpsBrain, a strategic assistant for a solo dev founder building a K/month agency in under 30 hrs/week. 
-Here's the current task backlog:
-
-{task_list}
-
-The user asked: '{user_text}'.
-
-Return 1–2 focused actions or strategic insights. Slack-friendly formatting only."""
-
-# Update to use the invoke method, fixing deprecation warning
-                ai_message = llm.invoke(prompt)
-                response = ai_message.content
-            except Exception as e:
-                logger.error(f"OpenAI API error: {e}")
-                response = "Sorry, I'm having trouble generating a response right now. Please try again later."
-
-        # Send response to Slack
-        if "command" in body:
             # For slash commands, we need to handle the 3-second timeout limit
             response_url = body.get("response_url")
             
+            # Validate response_url exists
+            if not response_url:
+                logger.error("No response_url found in slash command payload")
+                return {
+                    "text": "❌ Error: Missing response URL. Please try again.",
+                    "response_type": "ephemeral"
+                }
+            
             # Start background task to send the actual response
-            import asyncio
             import threading
             
             def send_delayed_response():
@@ -282,8 +262,12 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
                 except Exception as e:
                     logger.error(f"Error in delayed response: {e}")
             
-            # Start background thread
-            thread = threading.Thread(target=send_delayed_response)
+            # Start background thread with proper cleanup
+            thread = threading.Thread(
+                target=send_delayed_response, 
+                name=f"slack-response-{int(time.time())}",
+                daemon=True  # Dies when main process dies
+            )
             thread.start()
             
             # Return immediate response to avoid timeout
@@ -291,8 +275,40 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
                 "text": "🤔 Let me analyze your tasks and get back to you...", 
                 "response_type": "ephemeral"  # Only visible to user initially
             }
-        else:
-            # For events, post the message via API
+        elif "event" in body:
+            logger.info("Processing event subscription")
+            slack_msg = SlackMessage(**body)
+            event = slack_msg.event
+
+            if event.get("subtype") == "bot_message":
+                return {"ok": True}
+
+            user_text = event["text"]
+            channel = event["channel"]
+            
+            # For events, get tasks and generate response directly (no timeout concern)
+            tasks = fetch_open_tasks()
+            task_list = "\n".join(f"- {t}" for t in tasks)
+
+            if not llm:
+                response = "Sorry, OpenAI API key is not configured."
+            else:
+                try:
+                    prompt = f"""You are OpsBrain, a strategic assistant for a solo dev founder building a K/month agency in under 30 hrs/week. 
+Here's the current task backlog:
+
+{task_list}
+
+The user asked: '{user_text}'.
+
+Return 1–2 focused actions or strategic insights. Slack-friendly formatting only."""
+                    ai_message = llm.invoke(prompt)
+                    response = ai_message.content
+                except Exception as e:
+                    logger.error(f"OpenAI API error: {e}")
+                    response = "Sorry, I'm having trouble generating a response right now."
+            
+            # Post the message via API
             try:
                 slack_response = requests.post("https://slack.com/api/chat.postMessage", headers={
                     "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
@@ -306,6 +322,9 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
                     logger.error(f"Slack API error: {slack_response.status_code} - {slack_response.text}")
             except requests.RequestException as e:
                 logger.error(f"Failed to send message to Slack: {e}")
+        else:
+            logger.error(f"Unknown Slack request format: {list(body.keys())}")
+            return {"ok": True}
                 
     except Exception as e:
         logger.error(f"Unexpected error in slack_events: {e}")
