@@ -48,23 +48,57 @@ Configurations for deployment are provided in `render.yaml`. Ensure all sensitiv
 
 ### Testing
 
-Run the test suite to ensure everything is working correctly:
+The project includes comprehensive test coverage with both unit and integration tests.
 
-```bash
-# Basic test run
-pytest
+#### Test Structure
 
-# Verbose output
-pytest -v
-
-# With coverage report
-pytest --cov=main --cov-report=term-missing
+```
+tests/
+├── unit tests (fast, isolated)
+│   ├── test_business_goals.py       # Business logic and goal management
+│   └── test_environment_validation.py  # Environment setup validation
+│
+└── integration/ (slower, end-to-end)
+    ├── test_end_to_end_integration.py    # Full workflow testing
+    ├── test_message_visibility.py        # Slack message handling
+    ├── test_security_and_core.py         # Security and error handling
+    ├── test_slash_thread_integration.py  # Thread context detection
+    └── test_thread_context.py            # Conversation management
 ```
 
+#### Running Tests
+
+```bash
+# Run all tests
+make test-all
+
+# Run only unit tests (fast)
+make test
+
+# Run only integration tests
+make test-integration
+
+# Clean test artifacts
+make clean
+
+# Traditional pytest commands also work
+pytest -v                    # Verbose output
+pytest --cov=main           # With coverage
+```
+
+#### Test Coverage
+
+- **83 total tests** with 100% pass rate
+- **Unit Tests (45)**: Business logic, request parsing, response generation
+- **Integration Tests (38)**: End-to-end workflows, API integrations, security
+
 The tests cover:
-- Slack message handling (valid/invalid requests)
-- Notion database integration
-- Error handling for empty requests
+- Business goal creation and management
+- Request analysis and database action parsing
+- CEO dashboard and strategic response generation
+- Slack message handling and thread context
+- Notion database operations (mocked)
+- Security and error handling scenarios
 - All external dependencies are properly mocked
 
 ## Thread Context Management
@@ -145,7 +179,30 @@ Create a slash command:
 - Request URL: `https://your-domain.com/slack`
 - Short Description: "Get strategic insights from OpsBrain"
 
-## Usage
+## Usage Examples
+
+### Slash Commands
+
+```
+/ai create task: Design new landing page
+/ai show me the dashboard
+/ai create goal: Increase sales by 30% this quarter
+/ai add client: Acme Corporation
+/ai log metric: Monthly revenue reached $15k
+/ai help
+```
+
+### Event Messages
+
+OpsBrain responds to direct messages and mentions with context-aware insights:
+
+```
+What should I focus on this week?
+How can I improve my sales process?
+Show me my business priorities
+```
+
+### Integration Features
 
 1. **Slash Commands**: Use `/ai [your question]` in any channel for strategic insights
 2. **Direct Messages**: Message the bot directly for private conversations

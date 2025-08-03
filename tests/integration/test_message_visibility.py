@@ -75,9 +75,9 @@ class TestMessageVisibility:
             original_command_call = calls[0]
             assert "/ai What should I work on today?" in str(original_command_call)
             
-            # Second call should post the AI response
+            # Second call should post the AI response (using the mocked LLM response)
             ai_response_call = calls[1]
-            assert "Sorry, I'm having trouble generating a response right now." in str(ai_response_call)
+            assert "Here's your analysis" in str(ai_response_call)
             
             # Verify both calls are to the correct channel
             for call in calls:

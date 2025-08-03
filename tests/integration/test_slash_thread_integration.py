@@ -51,7 +51,7 @@ def test_detect_thread_context_with_recent_message():
 @responses.activate  
 def test_detect_thread_context_with_old_message():
     """Test that old thread messages are not detected."""
-    old_time = time.time() - 400  # 6+ minutes ago
+    old_time = time.time() - 1200  # 20 minutes ago (beyond all time windows)
     responses.add(
         responses.GET,
         "https://slack.com/api/conversations.history",
