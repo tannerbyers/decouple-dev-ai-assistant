@@ -121,13 +121,32 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
         logger.error("Received empty request body")
         raise HTTPException(status_code=400, detail="Empty request body")
 
-    try:
-        body = json.loads(raw_body)
-        logger.info(f"Parsed JSON body keys: {list(body.keys())}")
-        logger.info(f"Body type: {body.get('type', 'unknown')}")
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error: {str(e)} - Raw body: {raw_body[:500]}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+    # Check content type to determine how to parse the body
+    content_type = req.headers.get("content-type", "")
+    logger.info(f"Content-Type: {content_type}")
+    
+    # Parse body based on content type
+    if "application/x-www-form-urlencoded" in content_type:
+        # Slash command format
+        from urllib.parse import parse_qs
+        try:
+            form_data = parse_qs(raw_body.decode('utf-8'))
+            # Convert form data to a more usable format
+            body = {key: value[0] if len(value) == 1 else value for key, value in form_data.items()}
+            logger.info(f"Parsed form data keys: {list(body.keys())}")
+            logger.info(f"Command: {body.get('command', 'unknown')}")
+        except Exception as e:
+            logger.error(f"Form decode error: {str(e)} - Raw body: {raw_body[:500]}")
+            raise HTTPException(status_code=400, detail=f"Invalid form data: {str(e)}")
+    else:
+        # JSON format (event subscriptions)
+        try:
+            body = json.loads(raw_body)
+            logger.info(f"Parsed JSON body keys: {list(body.keys())}")
+            logger.info(f"Body type: {body.get('type', 'unknown')}")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {str(e)} - Raw body: {raw_body[:500]}")
+            raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
 
     # Handle Slack URL verification challenge (bypass signature verification)
     if "challenge" in body:
@@ -145,16 +164,33 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
     else:
         logger.info("Skipping signature verification due to TEST_MODE")
 
-    slack_msg = SlackMessage(**body)
-    event = slack_msg.event
-
-    if event.get("subtype") == "bot_message":
-        return {"ok": True}
-
-    user_text = event["text"]
-    channel = event["channel"]
-
+    # Handle different types of Slack requests
     try:
+        # Check if this is a slash command
+        if "command" in body:
+            logger.info("Processing slash command")
+            user_text = body.get("text", "")
+            channel = body.get("channel_id")
+            command = body.get("command")
+            
+            logger.info(f"Slash command: {command}, text: {user_text}, channel: {channel}")
+            
+        elif "event" in body:
+            logger.info("Processing event subscription")
+            slack_msg = SlackMessage(**body)
+            event = slack_msg.event
+
+            if event.get("subtype") == "bot_message":
+                return {"ok": True}
+
+            user_text = event["text"]
+            channel = event["channel"]
+            
+        else:
+            logger.error(f"Unknown Slack request format: {body}")
+            return {"ok": True}
+
+        # Get tasks and generate AI response
         tasks = fetch_open_tasks()
         task_list = "\n".join(f"- {t}" for t in tasks)
 
@@ -177,20 +213,25 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
                 response = "Sorry, I'm having trouble generating a response right now. Please try again later."
 
         # Send response to Slack
-        try:
-            slack_response = requests.post("https://slack.com/api/chat.postMessage", headers={
-                "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
-                "Content-type": "application/json"
-            }, json={
-                "channel": channel,
-                "text": response
-            }, timeout=10)
-            
-            if not slack_response.ok:
-                logger.error(f"Slack API error: {slack_response.status_code} - {slack_response.text}")
-        except requests.RequestException as e:
-            logger.error(f"Failed to send message to Slack: {e}")
-            
+        if "command" in body:
+            # For slash commands, return the response directly (Slack will post it)
+            return {"text": response, "response_type": "in_channel"}
+        else:
+            # For events, post the message via API
+            try:
+                slack_response = requests.post("https://slack.com/api/chat.postMessage", headers={
+                    "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+                    "Content-type": "application/json"
+                }, json={
+                    "channel": channel,
+                    "text": response
+                }, timeout=10)
+                
+                if not slack_response.ok:
+                    logger.error(f"Slack API error: {slack_response.status_code} - {slack_response.text}")
+            except requests.RequestException as e:
+                logger.error(f"Failed to send message to Slack: {e}")
+                
     except Exception as e:
         logger.error(f"Unexpected error in slack_events: {e}")
         # Still return ok to prevent Slack from retrying
