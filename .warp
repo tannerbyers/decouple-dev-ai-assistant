@@ -18,16 +18,26 @@
 ## Project Structure
 ```
 /Users/naultic/workplace/decouple-dev-ai-assistant/
-├── main.py                    # Core application logic
-├── requirements.txt           # Python dependencies
-├── README.md                  # Comprehensive documentation
-├── tests/
-│   └── test_thread_context.py # Thread context tests
-├── test_main.py               # Main application tests
-├── venv/                      # Virtual environment
-├── .env.example               # Environment template
-├── Procfile                   # Deployment config
-└── render.yaml                # Deployment configuration
+├── main.py                           # Core application logic
+├── goal_manager.py                   # Business goal management
+├── requirements.txt                  # Python dependencies
+├── README.md                         # Comprehensive documentation
+├── BUSINESS_GOALS.md                 # Business logic documentation
+├── Makefile                          # Test execution targets
+├── pytest.ini                       # Test configuration
+├── tests/                            # Unit tests (fast)
+│   ├── test_business_goals.py        # Business logic tests
+│   ├── test_environment_validation.py # Environment setup tests
+│   └── integration/                  # Integration tests (slower)
+│       ├── test_end_to_end_integration.py
+│       ├── test_message_visibility.py
+│       ├── test_security_and_core.py
+│       ├── test_slash_thread_integration.py
+│       └── test_thread_context.py
+├── venv/                             # Virtual environment
+├── .env.example                      # Environment template
+├── Procfile                          # Deployment config
+└── render.yaml                       # Deployment configuration
 ```
 
 ## Environment Setup
@@ -76,10 +86,31 @@ gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
 
 ## Testing Standards
 
-### Test Structure
-- **Unit Tests:** `tests/test_thread_context.py` - Thread context management
-- **Integration Tests:** `test_main.py` - Full application functionality
-- **Mock Strategy:** All external APIs (Slack, Notion, OpenAI) are mocked
+### Test Structure (83 Total Tests)
+**Unit Tests (45 tests - Fast, Isolated):**
+- `tests/test_business_goals.py` - Business logic and goal management (74 tests)
+- `tests/test_environment_validation.py` - Environment setup validation (5 tests)
+
+**Integration Tests (38 tests - End-to-End):**
+- `tests/integration/test_end_to_end_integration.py` - Full workflow testing (2 tests)
+- `tests/integration/test_message_visibility.py` - Slack message handling (2 tests)
+- `tests/integration/test_security_and_core.py` - Security and error handling (23 tests)
+- `tests/integration/test_slash_thread_integration.py` - Thread context detection (6 tests)
+- `tests/integration/test_thread_context.py` - Conversation management (4 tests)
+
+### Test Execution
+```bash
+# Run unit tests only (fast - 45 tests)
+make test
+
+# Run integration tests only (slower - 38 tests)
+make test-integration
+
+# Run all tests (83 tests)
+make test-all
+```
+
+**Mock Strategy:** All external APIs (Slack, Notion, OpenAI) are mocked
 
 ### Test Requirements for New Features
 1. **Unit Tests:** Test individual functions in isolation
@@ -179,7 +210,13 @@ def test_your_new_feature_with_mocking(mock_dependency):
 source venv/bin/activate
 
 # Run tests after every change
-python -m pytest test_main.py tests/test_thread_context.py -v
+make test-all
+
+# Run only unit tests (fast)
+make test
+
+# Run only integration tests
+make test-integration
 
 # Run specific test
 python -m pytest test_main.py::test_function_name -v
@@ -189,6 +226,90 @@ python -m pytest --cov=main --cov-report=html
 
 # Start development server
 uvicorn main:app --reload
+```
+
+### Git Workflow & Commit Standards
+
+#### Commit Message Guidelines
+**ALWAYS use short, descriptive commit messages that follow this format:**
+
+```bash
+# Good examples (50 characters or less)
+git commit -m "Fix null byte error in main.py"
+git commit -m "Add integration test structure"
+git commit -m "Update README with test documentation"
+git commit -m "Refactor thread context detection"
+
+# Bad examples (too long, will break)
+git commit -m "This is a very long commit message that describes everything we did in great detail and will definitely cause issues because it's way too long and contains line breaks and special characters"
+```
+
+#### Pre-Commit Checklist
+**ALWAYS run before committing:**
+```bash
+# 1. Run ALL tests to ensure nothing breaks
+make test-all
+
+# 2. Check status
+git status
+
+# 3. Add files (be specific, avoid git add .)
+git add specific_file.py another_file.py
+
+# 4. Commit with SHORT message
+git commit -m "Brief description of change"
+
+# 5. Push immediately
+git push
+```
+
+#### Commit Message Format Rules
+1. **Maximum 50 characters** for commit message
+2. **Start with verb** (Add, Fix, Update, Remove, Refactor)
+3. **No special characters** that break shell parsing
+4. **No line breaks** in commit message
+5. **Be specific but concise**
+
+#### Examples by Change Type
+```bash
+# Bug fixes
+git commit -m "Fix environment variable validation"
+git commit -m "Fix thread context memory leak"
+
+# New features
+git commit -m "Add business goal management"
+git commit -m "Add CEO dashboard endpoint"
+
+# Refactoring
+git commit -m "Refactor test structure"
+git commit -m "Split integration from unit tests"
+
+# Documentation
+git commit -m "Update README with test instructions"
+git commit -m "Add business goals documentation"
+
+# Configuration
+git commit -m "Add pytest configuration"
+git commit -m "Update Makefile targets"
+```
+
+#### What NOT to Do
+```bash
+# DON'T: Multi-line commit messages
+git commit -m "Fix multiple issues:
+- Fix null bytes
+- Update tests
+- Add documentation"
+
+# DON'T: Special characters that break shell
+git commit -m "Fix "quoted" strings & special chars"
+
+# DON'T: Extremely long descriptions
+git commit -m "This commit fixes a very complex issue..."
+
+# DON'T: Vague messages
+git commit -m "Fix stuff"
+git commit -m "Update code"
 ```
 
 ### Debugging
