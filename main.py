@@ -58,12 +58,33 @@ def fetch_open_tasks():
             }
         )
         tasks = []
-        for row in results["results"]:
+        logger.info(f"Found {len(results['results'])} rows in Notion database")
+        
+        for i, row in enumerate(results["results"]):
             try:
-                title = row["properties"]["Task"]["title"][0]["text"].get("content", "No Title")
-                tasks.append(title)
+                # Debug logging for first few rows
+                if i < 3:  # Only log first 3 rows to avoid spam
+                    logger.info(f"Row {i} properties keys: {list(row.get('properties', {}).keys())}")
+                    task_prop = row.get("properties", {}).get("Task", {})
+                    logger.info(f"Row {i} Task property: {task_prop}")
+                
+                # More robust task parsing
+                task_property = row.get("properties", {}).get("Task", {})
+                title_array = task_property.get("title", [])
+                
+                if title_array and len(title_array) > 0:
+                    text_content = title_array[0].get("text", {})
+                    title = text_content.get("content", "Untitled Task")
+                else:
+                    title = "Untitled Task"
+                    
+                if title.strip():  # Only add non-empty titles
+                    tasks.append(title)
+                    logger.info(f"Successfully parsed task: '{title}'")
             except (KeyError, IndexError, TypeError) as e:
-                logger.warning(f"Failed to parse task: {e}")
+                logger.warning(f"Failed to parse task {i}: {e}")
+                if i < 3:  # Only log full row data for first few to avoid spam
+                    logger.warning(f"Row {i} full data: {json.dumps(row, indent=2)}")
                 continue
         return tasks
     except APIResponseError as e:
