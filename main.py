@@ -88,11 +88,6 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
     # Get raw body first to check if it's empty
     raw_body = await req.body()
 
-    # Verify signature (skip in test mode)
-    if not TEST_MODE and not verify_slack_signature(raw_body, x_slack_request_timestamp, x_slack_signature):
-        logger.error("Slack request verification failed")
-        raise HTTPException(status_code=403, detail="Invalid Slack signature")
-
     if not raw_body:
         raise HTTPException(status_code=400, detail="Empty request body")
 
@@ -101,9 +96,15 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
 
-    # Handle Slack URL verification challenge
+    # Handle Slack URL verification challenge (bypass signature verification)
     if "challenge" in body:
+        logger.info("Slack URL verification challenge received")
         return {"challenge": body["challenge"]}
+
+    # Verify signature for all other requests (skip in test mode)
+    if not TEST_MODE and not verify_slack_signature(raw_body, x_slack_request_timestamp, x_slack_signature):
+        logger.error("Slack request verification failed")
+        raise HTTPException(status_code=403, detail="Invalid Slack signature")
 
     slack_msg = SlackMessage(**body)
     event = slack_msg.event
