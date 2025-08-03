@@ -1,12 +1,15 @@
-# Decouple Dev AI Assistant
+# OpsBrain Slack Bot
 
-This project aims to enhance productivity by leveraging AI to handle tasks, especially through Slack and Notion database interactions. It is designed to flexibly accommodate AI requests and provide strategic insights and actions.
+A strategic assistant Slack bot integrated with Notion and OpenAI for solo dev founders building agencies. This project enhances productivity by leveraging AI to handle tasks and provide strategic insights through Slack conversations.
 
 ## Features
 
-- **Slack Integration**: Responds to Slack messages and provides strategic insights.
-- **Notion Database Interaction**: Fetches tasks from Notion, focusing on those marked as "To Do" or "Inbox".
-- **AI-Driven Insights**: Utilizes OpenAI's GPT-4 to offer recommendations and insights based on available tasks and user queries.
+- **Slash Commands**: Respond to `/opsbrain` commands with strategic insights
+- **Event Handling**: Process direct messages and mentions  
+- **Thread Context Management**: Maintain conversation context within Slack threads
+- **Notion Integration**: Fetch open tasks from Notion database
+- **OpenAI Integration**: Generate strategic responses using GPT-4
+- **Security**: Request signature verification and secure token handling
 
 ## Setup
 
@@ -64,10 +67,90 @@ The tests cover:
 - Error handling for empty requests
 - All external dependencies are properly mocked
 
+## Thread Context Management
+
+The bot maintains conversation context within Slack threads to provide coherent, ongoing conversations.
+
+### How It Works
+
+1. **New Messages**: When a user sends a message outside of a thread, a fresh context is created
+2. **Thread Replies**: When a user replies in a thread, the bot continues the existing conversation context
+3. **Context Storage**: Conversations are stored in memory with a thread key format: `{channel}:{thread_ts}`
+4. **Message Limit**: Each thread context maintains the last 10 messages to prevent memory bloat
+5. **Cleanup**: Thread contexts older than 24 hours are automatically cleaned up
+
+### Context Structure
+
+```python
+{
+    'messages': [
+        'User: How should I prioritize my tasks?',
+        'OpsBrain: Focus on revenue-generating activities first...',
+        'User: What about technical debt?',
+        'OpsBrain: Address technical debt that blocks revenue...'
+    ],
+    'created_at': 1704067200.0  # Unix timestamp
+}
+```
+
+### Thread Context Functions
+
+#### `get_thread_context(thread_ts, channel, user_text)`
+Retrieves or creates conversation context for a thread.
+
+**Parameters:**
+- `thread_ts` (str|None): Slack thread timestamp
+- `channel` (str): Slack channel ID
+- `user_text` (str): User's message text
+
+**Returns:** Dictionary containing conversation context
+
+#### `update_thread_context(thread_ts, channel, ai_response)`
+Updates thread context with AI response and manages message history.
+
+**Parameters:**
+- `thread_ts` (str|None): Slack thread timestamp
+- `channel` (str): Slack channel ID
+- `ai_response` (str): AI-generated response
+
+#### `cleanup_old_threads()`
+Removes thread conversations older than 24 hours to manage memory usage.
+
+## Slack App Configuration
+
+### OAuth & Permissions
+
+Bot Token Scopes:
+- `chat:write` - Send messages
+- `commands` - Handle slash commands
+- `channels:read` - Read channel information
+- `groups:read` - Read private channel information
+- `im:read` - Read direct messages
+- `mpim:read` - Read group direct messages
+
+### Event Subscriptions
+
+Subscribe to Bot Events:
+- `message.channels` - Messages in channels
+- `message.groups` - Messages in private channels
+- `message.im` - Direct messages
+- `message.mpim` - Group direct messages
+
+Request URL: `https://your-domain.com/slack`
+
+### Slash Commands
+
+Create a slash command:
+- Command: `/opsbrain`
+- Request URL: `https://your-domain.com/slack`
+- Short Description: "Get strategic insights from OpsBrain"
+
 ## Usage
 
-1. **Slack**: Send a message to the Slack bot for insights on current tasks and strategic advice.
-2. **Notion**: The app will pull tasks tagged as "To Do" or "Inbox" from the configured Notion database.
+1. **Slash Commands**: Use `/opsbrain [your question]` in any channel for strategic insights
+2. **Direct Messages**: Message the bot directly for private conversations
+3. **Thread Conversations**: Reply in threads to maintain conversation context
+4. **Notion Integration**: The app automatically pulls tasks tagged as "To Do" or "Inbox" from the configured Notion database
 
 ## File Structure
 

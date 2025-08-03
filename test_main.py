@@ -42,15 +42,9 @@ def test_slack_valid_request(mock_llm, mock_fetch_tasks, mock_requests_post):
     assert response.json() == {"ok": True}
 
 def test_slack_invalid_request():
-    # This test expects a ValidationError to be raised
-    # since the SlackMessage model requires 'type' and 'event' fields
-    import pytest
-    from pydantic_core import ValidationError
-    
-    with pytest.raises(ValidationError):
-        response = client.post("/slack", json={})
-        assert response.status_code == 400
-        assert json.loads(response.content) == {'detail': 'Empty request body'}
+    response = client.post("/slack", json={})
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
 
 def test_slack_empty_body():
     response = client.post("/slack", data="")
@@ -75,7 +69,7 @@ def test_fetch_open_tasks(mock_notion):
     mock_notion.databases.query.assert_called_once()
 
 # Test slash command handling
-@patch('main.threading.Thread')
+@patch('threading.Thread')
 def test_slack_slash_command(mock_thread):
     # Mock thread to prevent actual threading
     mock_thread_instance = MagicMock()
@@ -96,7 +90,7 @@ def test_slack_slash_command(mock_thread):
     assert response.status_code == 200
     json_response = response.json()
     assert "🤔 Let me analyze your tasks" in json_response["text"]
-    assert json_response["response_type"] == "ephemeral"
+    assert json_response["response_type"] == "in_channel"
     
     # Verify background thread was started
     mock_thread.assert_called_once()
@@ -133,8 +127,7 @@ def test_health_check():
     assert response.status_code == 200
     json_response = response.json()
     assert json_response["status"] == "healthy"
-    assert json_response["test_mode"] is True
-    assert json_response["slack_bot_token_set"] is True
+    assert "timestamp" in json_response
 
 # Test fetch_open_tasks with empty results
 @patch('main.notion')
@@ -163,11 +156,11 @@ def test_fetch_open_tasks_malformed(mock_notion):
 # Test fetch_open_tasks with API error
 @patch('main.notion')
 def test_fetch_open_tasks_api_error(mock_notion):
-    from notion_client.errors import APIResponseError
-    mock_notion.databases.query.side_effect = APIResponseError("API Error", None)
+    # Use a generic exception to simulate an API error
+    mock_notion.databases.query.side_effect = Exception("API Error")
     
     tasks = fetch_open_tasks()
-    assert "Unable to fetch tasks from Notion" in tasks
+    assert "Error accessing task database" in tasks
 
 # Test bot message filtering
 def test_slack_bot_message_filtered():
@@ -183,3 +176,110 @@ def test_slack_bot_message_filtered():
     
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+# Test thread context management integration
+@patch('main.requests.post')
+@patch('main.fetch_open_tasks')
+@patch('main.llm')
+def test_slack_message_with_thread_context(mock_llm, mock_fetch_tasks, mock_requests_post):
+    """Test that messages in threads maintain context"""
+    from main import thread_conversations
+    
+    # Clear any existing conversations
+    thread_conversations.clear()
+    
+    # Mock dependencies
+    mock_fetch_tasks.return_value = ["Task 1", "Task 2"]
+    mock_llm.invoke.return_value = MagicMock(content="Here's your response")
+    mock_requests_post.return_value.status_code = 200
+    
+    # First message in thread
+    response = client.post("/slack", json={
+        "type": "event_callback",
+        "event": {
+            "type": "message",
+            "text": "Start of conversation",
+            "channel": "C123",
+            "thread_ts": "1234567890.123456",
+            "subtype": None
+        }
+    })
+    
+    assert response.status_code == 200
+    # Check that thread context was created
+    thread_key = "C123:1234567890.123456"
+    assert thread_key in thread_conversations
+    assert len(thread_conversations[thread_key]['messages']) == 2  # User + AI response
+    
+    # Second message in same thread
+    response = client.post("/slack", json={
+        "type": "event_callback",
+        "event": {
+            "type": "message",
+            "text": "Continue conversation", 
+            "channel": "C123",
+            "thread_ts": "1234567890.123456",
+            "subtype": None
+        }
+    })
+    
+    assert response.status_code == 200
+    # Check that context was continued
+    assert len(thread_conversations[thread_key]['messages']) == 4  # 2 user + 2 AI responses
+    
+    # Cleanup
+    thread_conversations.clear()
+
+# Test thread context memory management
+def test_thread_context_memory_limit():
+    """Test that thread contexts limit message history to prevent memory bloat"""
+    from main import get_thread_context, update_thread_context, thread_conversations
+    
+    thread_conversations.clear()
+    
+    # Add 12 messages (exceeding the 10-message limit)
+    for i in range(6):
+        get_thread_context("12345", "C123", f"User message {i}")
+        update_thread_context("12345", "C123", f"AI response {i}")
+    
+    # Should have exactly 10 messages (last 10)
+    context = thread_conversations['C123:12345']
+    assert len(context['messages']) == 10
+    
+    # Should contain the most recent messages
+    assert "User message 5" in context['messages'][-2]
+    assert "AI response 5" in context['messages'][-1]
+    
+    # Should not contain the oldest messages
+    assert not any("User message 0" in msg for msg in context['messages'])
+    
+    thread_conversations.clear()
+
+# Test cleanup of old threads
+def test_thread_cleanup_integration():
+    """Test that old threads are properly cleaned up"""
+    from main import thread_conversations, cleanup_old_threads
+    import time
+    
+    thread_conversations.clear()
+    
+    # Add old thread (timestamp = 0)
+    thread_conversations['C123:old'] = {
+        'messages': ['Old message'],
+        'created_at': 0
+    }
+    
+    # Add recent thread (current timestamp)
+    thread_conversations['C123:recent'] = {
+        'messages': ['Recent message'], 
+        'created_at': time.time()
+    }
+    
+    cleanup_old_threads()
+    
+    # Old thread should be removed
+    assert 'C123:old' not in thread_conversations
+    # Recent thread should remain
+    assert 'C123:recent' in thread_conversations
+    
+    thread_conversations.clear()

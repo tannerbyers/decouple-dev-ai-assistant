@@ -1,0 +1,238 @@
+# OpsBrain Slack Bot - Warp Configuration
+
+## Project Overview
+**Name:** OpsBrain Slack Bot  
+**Type:** Strategic AI Assistant for Solo Dev Founders  
+**Tech Stack:** Python 3.13, FastAPI, OpenAI GPT-4, Slack API, Notion API  
+**Environment:** MacOS with zsh shell  
+
+## Core Functionality
+- **Slash Commands:** `/opsbrain` commands visible in channels
+- **Event Handling:** Direct messages and mentions with AI responses
+- **Thread Context Management:** Maintains conversation context within Slack threads
+- **Notion Integration:** Fetches tasks marked as "To Do" or "Inbox"
+- **OpenAI Integration:** Strategic insights using GPT-4
+- **Security:** Request signature verification with test mode bypass
+
+## Project Structure
+```
+/Users/naultic/workplace/decouple-dev-ai-assistant/
+├── main.py                    # Core application logic
+├── requirements.txt           # Python dependencies
+├── README.md                  # Comprehensive documentation
+├── tests/
+│   └── test_thread_context.py # Thread context tests
+├── test_main.py               # Main application tests
+├── venv/                      # Virtual environment
+├── .env.example               # Environment template
+├── Procfile                   # Deployment config
+└── render.yaml                # Deployment configuration
+```
+
+## Environment Setup
+**Virtual Environment:** `venv/` (Python 3.13)
+**Required Environment Variables:**
+- `SLACK_BOT_TOKEN` - Bot User OAuth Token
+- `SLACK_SIGNING_SECRET` - Slack App signing secret
+- `NOTION_API_KEY` - Notion integration token
+- `NOTION_DB_ID` - Target database ID
+- `OPENAI_API_KEY` - OpenAI API key
+- `TEST_MODE` - Set to "true" for development (skips signature verification)
+
+## Development Workflow
+
+### Activate Environment
+```bash
+source venv/bin/activate
+```
+
+### Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### Run Tests (ALWAYS after changes)
+```bash
+# Run all tests with verbose output
+python -m pytest test_main.py tests/test_thread_context.py -v
+
+# Run specific test file
+python -m pytest tests/test_thread_context.py -v
+
+# Run with coverage
+python -m pytest --cov=main --cov-report=term-missing
+```
+
+### Run Application Locally
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Deploy with Gunicorn
+```bash
+gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+```
+
+## Testing Standards
+
+### Test Structure
+- **Unit Tests:** `tests/test_thread_context.py` - Thread context management
+- **Integration Tests:** `test_main.py` - Full application functionality
+- **Mock Strategy:** All external APIs (Slack, Notion, OpenAI) are mocked
+
+### Test Requirements for New Features
+1. **Unit Tests:** Test individual functions in isolation
+2. **Integration Tests:** Test feature within full application context
+3. **Edge Cases:** Test error conditions and boundary cases
+4. **Mocking:** Mock all external dependencies
+5. **Environment:** Set test environment variables before importing main
+
+### Test Template for New Features
+```python
+import os
+import pytest
+from unittest.mock import patch, MagicMock
+
+# Set environment variables before importing main
+os.environ['SLACK_BOT_TOKEN'] = 'fake_slack_token'
+os.environ['SLACK_SIGNING_SECRET'] = 'fake_signing_secret'
+os.environ['NOTION_API_KEY'] = 'fake_notion_key'
+os.environ['NOTION_DB_ID'] = 'fake_db_id'
+os.environ['OPENAI_API_KEY'] = 'fake_openai_key'
+os.environ['TEST_MODE'] = 'true'
+
+from main import your_new_function
+
+def test_your_new_feature():
+    # Test implementation
+    pass
+
+@patch('main.external_dependency')
+def test_your_new_feature_with_mocking(mock_dependency):
+    # Test with mocked dependencies
+    pass
+```
+
+## Thread Context Management
+
+### Key Functions
+- `get_thread_context(thread_ts, channel, user_text)` - Retrieve/create context
+- `update_thread_context(thread_ts, channel, ai_response)` - Update with AI response  
+- `cleanup_old_threads()` - Remove threads older than 24 hours
+
+### Context Structure
+```python
+{
+    'messages': ['User: message', 'OpsBrain: response'],
+    'created_at': unix_timestamp
+}
+```
+
+### Memory Management
+- **Message Limit:** 10 messages per thread (keeps last 10)
+- **Cleanup:** Automatic cleanup of threads >24 hours old
+- **Storage:** In-memory dictionary (consider Redis for production)
+
+## API Endpoints
+
+### Health Check
+- **GET /** - Returns status and timestamp
+- **Response:** `{"status": "healthy", "timestamp": 1234567890}`
+
+### Slack Events
+- **POST /slack** - Handles all Slack interactions
+- **Content Types:** JSON (events) and form-encoded (slash commands)
+- **Security:** Signature verification (bypassed in TEST_MODE)
+
+## Development Guidelines
+
+### Code Quality
+- **Logging:** Comprehensive logging with different levels for TEST_MODE
+- **Error Handling:** Graceful fallbacks for all external API failures
+- **Security:** Always verify Slack signatures in production
+- **Threading:** Background processing for slash commands to avoid 3-second timeout
+
+### Adding New Features
+1. **Design:** Plan the feature and its tests first
+2. **Implementation:** Write the feature code
+3. **Testing:** Create comprehensive tests (unit + integration)
+4. **Documentation:** Update README.md with new functionality
+5. **Environment:** Add any new environment variables to .env.example
+
+### Slack App Configuration Required
+**OAuth Scopes:**
+- `chat:write`, `commands`, `channels:read`, `groups:read`, `im:read`, `mpim:read`
+
+**Event Subscriptions:**
+- `message.channels`, `message.groups`, `message.im`, `message.mpim`
+
+**Slash Commands:**
+- Command: `/opsbrain`
+- Request URL: `https://your-domain.com/slack`
+
+## Common Commands
+
+### Development
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run tests after every change
+python -m pytest test_main.py tests/test_thread_context.py -v
+
+# Run specific test
+python -m pytest test_main.py::test_function_name -v
+
+# Run with coverage
+python -m pytest --cov=main --cov-report=html
+
+# Start development server
+uvicorn main:app --reload
+```
+
+### Debugging
+```bash
+# Set TEST_MODE for verbose logging
+export TEST_MODE=true
+
+# Check logs during development
+tail -f logs/app.log  # if logging to file
+
+# Test signature verification
+curl -X POST http://localhost:8000/slack -d '{}' -H "Content-Type: application/json"
+```
+
+## Troubleshooting
+
+### Common Issues
+1. **403 Forbidden:** Expected with invalid/test signatures when TEST_MODE=false
+2. **Missing Env Vars:** Check .env file and required variables
+3. **Thread Import Error:** Use `@patch('threading.Thread')` not `@patch('main.threading.Thread')`
+4. **API Errors:** All external APIs should be mocked in tests
+
+### Test Failures
+- **Environment Variables:** Ensure all test env vars are set before importing main
+- **Mock Issues:** Verify mock objects have required attributes (e.g., status_code)
+- **Thread Context:** Clear `thread_conversations` in test fixtures
+
+## Performance Considerations
+- **Memory Usage:** Thread contexts auto-cleanup after 24 hours
+- **API Limits:** Respect OpenAI and Notion API rate limits
+- **Slack Timeouts:** Use background threading for slash commands
+- **Context Size:** Limit conversation context to last 6 messages for AI prompts
+
+## Security Notes
+- **Signature Verification:** Always enabled in production (TEST_MODE=false)
+- **Environment Variables:** Never commit actual API keys
+- **Token Security:** Bot token used only for outgoing requests
+- **Input Validation:** Validate all incoming Slack payloads
+
+## Future Enhancement Ideas
+- **Persistent Storage:** Replace in-memory storage with Redis/Database
+- **User Preferences:** Per-user settings and context preferences  
+- **Advanced Analytics:** Track usage patterns and optimize responses
+- **Multi-workspace:** Support for multiple Slack workspaces
+- **Plugin System:** Modular architecture for additional integrations
+
+---
+*Last Updated: 2025-08-03 - Thread Context Management Implementation*

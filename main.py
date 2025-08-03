@@ -55,6 +55,56 @@ else:
     print("Warning: OPENAI_API_KEY not found in environment variables")
 notion = NotionClient(auth=NOTION_API_KEY)
 
+# Simple in-memory conversation storage for thread context
+# In production, you might want to use Redis or a database
+thread_conversations = {}
+
+def get_thread_context(thread_ts, channel, user_text):
+    """Get conversation context for a thread or start new context."""
+    thread_key = f"{channel}:{thread_ts}" if thread_ts else None
+    
+    if thread_key and thread_key in thread_conversations:
+        # Continue existing thread conversation
+        context = thread_conversations[thread_key]
+        context['messages'].append(f"User: {user_text}")
+        logger.info(f"Continuing thread conversation in {thread_key} ({len(context['messages'])} messages)")
+        return context
+    else:
+        # Start new conversation (either new thread or no thread)
+        context = {
+            'messages': [f"User: {user_text}"],
+            'created_at': time.time()
+        }
+        if thread_key:
+            thread_conversations[thread_key] = context
+            logger.info(f"Started new thread conversation: {thread_key}")
+        else:
+            logger.info("Processing standalone message (no thread)")
+        return context
+
+def update_thread_context(thread_ts, channel, ai_response):
+    """Update thread context with AI response."""
+    thread_key = f"{channel}:{thread_ts}" if thread_ts else None
+    
+    if thread_key and thread_key in thread_conversations:
+        thread_conversations[thread_key]['messages'].append(f"OpsBrain: {ai_response}")
+        # Keep only last 10 messages to prevent memory bloat
+        if len(thread_conversations[thread_key]['messages']) > 10:
+            thread_conversations[thread_key]['messages'] = thread_conversations[thread_key]['messages'][-10:]
+
+def cleanup_old_threads():
+    """Clean up thread conversations older than 24 hours."""
+    current_time = time.time()
+    old_threads = []
+    
+    for thread_key, context in thread_conversations.items():
+        if current_time - context['created_at'] > 86400:  # 24 hours
+            old_threads.append(thread_key)
+    
+    for thread_key in old_threads:
+        del thread_conversations[thread_key]
+        logger.info(f"Cleaned up old thread: {thread_key}")
+
 class SlackMessage(BaseModel):
     type: str
     event: dict
@@ -270,10 +320,10 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
             )
             thread.start()
             
-            # Return immediate response to avoid timeout
+            # Return immediate response to avoid timeout - make visible in channel
             return {
                 "text": "🤔 Let me analyze your tasks and get back to you...", 
-                "response_type": "ephemeral"  # Only visible to user initially
+                "response_type": "in_channel"  # Show command and response in channel
             }
         elif "event" in body:
             logger.info("Processing event subscription")
@@ -285,6 +335,10 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
 
             user_text = event["text"]
             channel = event["channel"]
+            thread_ts = event.get("thread_ts")  # Get thread timestamp if message is in a thread
+            
+            # Get thread context for conversation continuity
+            context = get_thread_context(thread_ts, channel, user_text)
             
             # For events, get tasks and generate response directly (no timeout concern)
             tasks = fetch_open_tasks()
@@ -294,12 +348,16 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
                 response = "Sorry, OpenAI API key is not configured."
             else:
                 try:
+                    # Include conversation context in prompt if available
+                    conversation_context = "\n".join(context['messages'][-6:]) if len(context['messages']) > 1 else ""
+                    context_prompt = f"\n\nConversation context:\n{conversation_context}" if conversation_context else ""
+                    
                     prompt = f"""You are OpsBrain, a strategic assistant for a solo dev founder building a K/month agency in under 30 hrs/week. 
 Here's the current task backlog:
 
 {task_list}
 
-The user asked: '{user_text}'.
+The user asked: '{user_text}'.{context_prompt}
 
 Return 1–2 focused actions or strategic insights. Slack-friendly formatting only."""
                     ai_message = llm.invoke(prompt)
@@ -308,20 +366,32 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
                     logger.error(f"OpenAI API error: {e}")
                     response = "Sorry, I'm having trouble generating a response right now."
             
-            # Post the message via API
+            # Update thread context with AI response
+            update_thread_context(thread_ts, channel, response)
+            
+            # Post the message via API (include thread_ts if this is a thread reply)
+            message_data = {
+                "channel": channel,
+                "text": response
+            }
+            if thread_ts:
+                message_data["thread_ts"] = thread_ts
+            
             try:
                 slack_response = requests.post("https://slack.com/api/chat.postMessage", headers={
                     "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
                     "Content-type": "application/json"
-                }, json={
-                    "channel": channel,
-                    "text": response
-                }, timeout=10)
+                }, json=message_data, timeout=10)
                 
                 if not slack_response.ok:
                     logger.error(f"Slack API error: {slack_response.status_code} - {slack_response.text}")
             except requests.RequestException as e:
                 logger.error(f"Failed to send message to Slack: {e}")
+            
+            # Cleanup old threads periodically (every 100 messages)
+            import random
+            if random.randint(1, 100) == 1:
+                cleanup_old_threads()
         else:
             logger.error(f"Unknown Slack request format: {list(body.keys())}")
             return {"ok": True}
