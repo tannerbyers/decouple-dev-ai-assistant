@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from notion_client import Client as NotionClient
-import os, requests
+import os, requests, json
 
 app = FastAPI()
 
@@ -43,7 +43,18 @@ def fetch_open_tasks():
 
 @app.post("/slack")
 async def slack_events(req: Request):
-    body = await req.json()
+    # Get raw body first to check if it's empty
+    raw_body = await req.body()
+    
+    if not raw_body:
+        raise HTTPException(status_code=400, detail="Empty request body")
+    
+    try:
+        body = json.loads(raw_body)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
+    
+    # Handle Slack URL verification challenge
     if "challenge" in body:
         return {"challenge": body["challenge"]}
     
