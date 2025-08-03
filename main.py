@@ -237,8 +237,60 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
 
         # Send response to Slack
         if "command" in body:
-            # For slash commands, return the response directly (Slack will post it)
-            return {"text": response, "response_type": "in_channel"}
+            # For slash commands, we need to handle the 3-second timeout limit
+            response_url = body.get("response_url")
+            
+            # Start background task to send the actual response
+            import asyncio
+            import threading
+            
+            def send_delayed_response():
+                try:
+                    # Get tasks and generate AI response in background
+                    tasks = fetch_open_tasks()
+                    task_list = "\n".join(f"- {t}" for t in tasks)
+                    
+                    if not llm:
+                        ai_response = "Sorry, OpenAI API key is not configured."
+                    else:
+                        try:
+                            prompt = f"""You are OpsBrain, a strategic assistant for a solo dev founder building a K/month agency in under 30 hrs/week. 
+Here's the current task backlog:
+
+{task_list}
+
+The user asked: '{user_text}'.
+
+Return 1–2 focused actions or strategic insights. Slack-friendly formatting only."""
+                            ai_message = llm.invoke(prompt)
+                            ai_response = ai_message.content
+                        except Exception as e:
+                            logger.error(f"OpenAI API error: {e}")
+                            ai_response = "Sorry, I'm having trouble generating a response right now."
+                    
+                    # Send the response via webhook
+                    delayed_response = requests.post(response_url, json={
+                        "text": ai_response,
+                        "response_type": "in_channel"
+                    }, timeout=10)
+                    
+                    if not delayed_response.ok:
+                        logger.error(f"Failed to send delayed response: {delayed_response.status_code} - {delayed_response.text}")
+                    else:
+                        logger.info("Successfully sent delayed response")
+                        
+                except Exception as e:
+                    logger.error(f"Error in delayed response: {e}")
+            
+            # Start background thread
+            thread = threading.Thread(target=send_delayed_response)
+            thread.start()
+            
+            # Return immediate response to avoid timeout
+            return {
+                "text": "🤔 Let me analyze your tasks and get back to you...", 
+                "response_type": "ephemeral"  # Only visible to user initially
+            }
         else:
             # For events, post the message via API
             try:
