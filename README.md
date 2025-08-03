@@ -43,6 +43,27 @@ This project aims to enhance productivity by leveraging AI to handle tasks, espe
 
 Configurations for deployment are provided in `render.yaml`.
 
+### Testing
+
+Run the test suite to ensure everything is working correctly:
+
+```bash
+# Basic test run
+pytest
+
+# Verbose output
+pytest -v
+
+# With coverage report
+pytest --cov=main --cov-report=term-missing
+```
+
+The tests cover:
+- Slack message handling (valid/invalid requests)
+- Notion database integration
+- Error handling for empty requests
+- All external dependencies are properly mocked
+
 ## Usage
 
 1. **Slack**: Send a message to the Slack bot for insights on current tasks and strategic advice.
