@@ -60,7 +60,7 @@ def fetch_open_tasks():
         tasks = []
         for row in results["results"]:
             try:
-                title = row["properties"]["Task"]["title"][0]["text"]["content"]
+                title = row["properties"]["Task"]["title"][0]["text"].get("content", "No Title")
                 tasks.append(title)
             except (KeyError, IndexError, TypeError) as e:
                 logger.warning(f"Failed to parse task: {e}")
@@ -207,7 +207,9 @@ The user asked: '{user_text}'.
 
 Return 1–2 focused actions or strategic insights. Slack-friendly formatting only."""
 
-                response = llm.predict(prompt)
+# Update to use the invoke method, fixing deprecation warning
+                ai_message = llm.invoke(prompt)
+                response = ai_message.content
             except Exception as e:
                 logger.error(f"OpenAI API error: {e}")
                 response = "Sorry, I'm having trouble generating a response right now. Please try again later."
