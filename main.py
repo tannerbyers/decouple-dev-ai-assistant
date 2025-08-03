@@ -59,6 +59,48 @@ notion = NotionClient(auth=NOTION_API_KEY)
 # In production, you might want to use Redis or a database
 thread_conversations = {}
 
+def detect_thread_context(channel, user_id):
+    """Try to detect if a slash command was used in a thread by checking recent messages."""
+    try:
+        # Get recent conversation history to see if user recently posted in a thread
+        response = requests.get(
+            "https://slack.com/api/conversations.history",
+            headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
+            params={
+                "channel": channel,
+                "limit": 10,  # Check last 10 messages
+                "inclusive": True
+            },
+            timeout=5
+        )
+        
+        if response.ok:
+            data = response.json()
+            messages = data.get("messages", [])
+            
+            # Look for recent messages from the same user that have thread_ts
+            for message in messages:
+                # Check if this message is from the user and has thread_ts
+                if (message.get("user") == user_id and 
+                    message.get("thread_ts") and 
+                    "text" in message):
+                    
+                    # Return the thread_ts if message is recent (within last 5 minutes)
+                    import time
+                    message_ts = float(message.get("ts", 0))
+                    if time.time() - message_ts < 300:  # 5 minutes
+                        logger.info(f"Detected slash command in thread: {message.get('thread_ts')}")
+                        return message.get("thread_ts")
+            
+            logger.info("No recent thread context detected for slash command")
+        else:
+            logger.warning(f"Failed to fetch conversation history: {response.text}")
+            
+    except Exception as e:
+        logger.warning(f"Error detecting thread context: {e}")
+    
+    return None
+
 def get_thread_context(thread_ts, channel, user_text):
     """Get conversation context for a thread or start new context."""
     thread_key = f"{channel}:{thread_ts}" if thread_ts else None
@@ -268,10 +310,9 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
             
             def send_delayed_response():
                 try:
-                    # Get thread context for slash commands (check if this is in a thread)
-                    # Note: Slash commands don't directly provide thread_ts, but we can check recent messages
-                    # For now, we'll treat slash commands as starting new conversations
-                    context = get_thread_context(None, channel, user_text)
+                    # Try to detect if slash command was used in a thread by checking recent messages
+                    thread_ts = detect_thread_context(channel, user_id)
+                    context = get_thread_context(thread_ts, channel, user_text)
                     
                     # Get tasks and generate AI response in background
                     tasks = fetch_open_tasks()
@@ -300,7 +341,7 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
                             ai_response = "Sorry, I'm having trouble generating a response right now."
                     
                     # Update context with AI response
-                    update_thread_context(None, channel, ai_response)
+                    update_thread_context(thread_ts, channel, ai_response)
                     
                     # Post response as a regular message in the channel (this will appear as a reply thread)
                     try:
@@ -310,6 +351,7 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
                         }, json={
                             "channel": channel,
                             "text": ai_response,
+                            "thread_ts": thread_ts,  # Reply in thread if thread_ts exists
                             "reply_broadcast": False  # Don't broadcast thread replies to channel
                         }, timeout=10)
                         
