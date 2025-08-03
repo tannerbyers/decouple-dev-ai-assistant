@@ -325,6 +325,32 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
                     thread_ts = detect_thread_context(channel, user_id)
                     context = get_thread_context(thread_ts, channel, user_text)
                     
+                    # First, post the original command to make it visible in the channel
+                    if user_text.strip():  # Only post if there's actual text
+                        try:
+                            original_message_response = requests.post("https://slack.com/api/chat.postMessage", headers={
+                                "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+                                "Content-type": "application/json"
+                            }, json={
+                                "channel": channel,
+                                "text": f"{command} {user_text}",
+                                "thread_ts": thread_ts,  # Reply in thread if thread_ts exists
+                                "reply_broadcast": False  # Don't broadcast thread replies to channel
+                            }, timeout=10)
+                            
+                            if not original_message_response.ok:
+                                logger.error(f"Failed to post original command: {original_message_response.status_code} - {original_message_response.text}")
+                            else:
+                                logger.info("Successfully posted original slash command to channel")
+                                # If this is a new thread, use the message timestamp as thread_ts for the response
+                                if not thread_ts:
+                                    response_data = original_message_response.json()
+                                    if response_data.get('ok'):
+                                        thread_ts = response_data.get('ts')
+                                        logger.info(f"Starting new thread with ts: {thread_ts}")
+                        except requests.RequestException as e:
+                            logger.error(f"Failed to post original message to Slack: {e}")
+                    
                     # Get tasks and generate AI response in background
                     tasks = fetch_open_tasks()
                     task_list = "\n".join(f"- {t}" for t in tasks)
