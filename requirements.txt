@@ -1,0 +1,7 @@
+uvicorn[standard]
+fastapi
+python-dotenv
+notion-client
+openai
+requests
+langchain
