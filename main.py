@@ -258,24 +258,21 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
             user_text = body.get("text", "")
             channel = body.get("channel_id")
             command = body.get("command")
+            user_id = body.get("user_id")
+            trigger_id = body.get("trigger_id")
             
             logger.info(f"Slash command: {command}, text: {user_text}, channel: {channel}")
-            # For slash commands, we need to handle the 3-second timeout limit
-            response_url = body.get("response_url")
-            
-            # Validate response_url exists
-            if not response_url:
-                logger.error("No response_url found in slash command payload")
-                return {
-                    "text": "❌ Error: Missing response URL. Please try again.",
-                    "response_type": "ephemeral"
-                }
             
             # Start background task to send the actual response
             import threading
             
             def send_delayed_response():
                 try:
+                    # Get thread context for slash commands (check if this is in a thread)
+                    # Note: Slash commands don't directly provide thread_ts, but we can check recent messages
+                    # For now, we'll treat slash commands as starting new conversations
+                    context = get_thread_context(None, channel, user_text)
+                    
                     # Get tasks and generate AI response in background
                     tasks = fetch_open_tasks()
                     task_list = "\n".join(f"- {t}" for t in tasks)
@@ -284,12 +281,16 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
                         ai_response = "Sorry, OpenAI API key is not configured."
                     else:
                         try:
+                            # Include conversation context in prompt if available
+                            conversation_context = "\n".join(context['messages'][-6:]) if len(context['messages']) > 1 else ""
+                            context_prompt = f"\n\nConversation context:\n{conversation_context}" if conversation_context else ""
+                            
                             prompt = f"""You are OpsBrain, a strategic assistant for a solo dev founder building a K/month agency in under 30 hrs/week. 
 Here's the current task backlog:
 
 {task_list}
 
-The user asked: '{user_text}'.
+The user asked: '{user_text}'.{context_prompt}
 
 Return 1–2 focused actions or strategic insights. Slack-friendly formatting only."""
                             ai_message = llm.invoke(prompt)
@@ -298,16 +299,26 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
                             logger.error(f"OpenAI API error: {e}")
                             ai_response = "Sorry, I'm having trouble generating a response right now."
                     
-                    # Send the response via webhook
-                    delayed_response = requests.post(response_url, json={
-                        "text": ai_response,
-                        "response_type": "in_channel"
-                    }, timeout=10)
+                    # Update context with AI response
+                    update_thread_context(None, channel, ai_response)
                     
-                    if not delayed_response.ok:
-                        logger.error(f"Failed to send delayed response: {delayed_response.status_code} - {delayed_response.text}")
-                    else:
-                        logger.info("Successfully sent delayed response")
+                    # Post response as a regular message in the channel (this will appear as a reply thread)
+                    try:
+                        slack_response = requests.post("https://slack.com/api/chat.postMessage", headers={
+                            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+                            "Content-type": "application/json"
+                        }, json={
+                            "channel": channel,
+                            "text": ai_response,
+                            "reply_broadcast": False  # Don't broadcast thread replies to channel
+                        }, timeout=10)
+                        
+                        if not slack_response.ok:
+                            logger.error(f"Slack API error: {slack_response.status_code} - {slack_response.text}")
+                        else:
+                            logger.info("Successfully sent slash command response")
+                    except requests.RequestException as e:
+                        logger.error(f"Failed to send message to Slack: {e}")
                         
                 except Exception as e:
                     logger.error(f"Error in delayed response: {e}")
@@ -320,10 +331,10 @@ Return 1–2 focused actions or strategic insights. Slack-friendly formatting on
             )
             thread.start()
             
-            # Return immediate response to avoid timeout - make visible in channel
+            # Return immediate acknowledgment (this will be ephemeral and disappear)
             return {
-                "text": "🤔 Let me analyze your tasks and get back to you...", 
-                "response_type": "in_channel"  # Show command and response in channel
+                "text": "🤔 Let me analyze your tasks and get back to you...",
+                "response_type": "ephemeral"  # Only visible to user who ran command
             }
         elif "event" in body:
             logger.info("Processing event subscription")

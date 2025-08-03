@@ -4,7 +4,7 @@ A strategic assistant Slack bot integrated with Notion and OpenAI for solo dev f
 
 ## Features
 
-- **Slash Commands**: Respond to `/opsbrain` commands with strategic insights
+- **Slash Commands**: Respond to `/ai` commands with strategic insights
 - **Event Handling**: Process direct messages and mentions  
 - **Thread Context Management**: Maintain conversation context within Slack threads
 - **Notion Integration**: Fetch open tasks from Notion database
@@ -141,13 +141,13 @@ Request URL: `https://your-domain.com/slack`
 ### Slash Commands
 
 Create a slash command:
-- Command: `/opsbrain`
+- Command: `/ai`
 - Request URL: `https://your-domain.com/slack`
 - Short Description: "Get strategic insights from OpsBrain"
 
 ## Usage
 
-1. **Slash Commands**: Use `/opsbrain [your question]` in any channel for strategic insights
+1. **Slash Commands**: Use `/ai [your question]` in any channel for strategic insights
 2. **Direct Messages**: Message the bot directly for private conversations
 3. **Thread Conversations**: Reply in threads to maintain conversation context
 4. **Notion Integration**: The app automatically pulls tasks tagged as "To Do" or "Inbox" from the configured Notion database

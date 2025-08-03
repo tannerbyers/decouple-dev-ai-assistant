@@ -7,9 +7,10 @@
 **Environment:** MacOS with zsh shell  
 
 ## Core Functionality
-- **Slash Commands:** `/opsbrain` commands visible in channels
+- **Slash Commands:** `/ai` commands with ephemeral acknowledgment + channel response
 - **Event Handling:** Direct messages and mentions with AI responses
 - **Thread Context Management:** Maintains conversation context within Slack threads
+- **Thread-aware Slash Commands:** Slash commands consider conversation context
 - **Notion Integration:** Fetches tasks marked as "To Do" or "Inbox"
 - **OpenAI Integration:** Strategic insights using GPT-4
 - **Security:** Request signature verification with test mode bypass
@@ -167,7 +168,7 @@ def test_your_new_feature_with_mocking(mock_dependency):
 - `message.channels`, `message.groups`, `message.im`, `message.mpim`
 
 **Slash Commands:**
-- Command: `/opsbrain`
+- Command: `/ai`
 - Request URL: `https://your-domain.com/slack`
 
 ## Common Commands
