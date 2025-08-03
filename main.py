@@ -85,26 +85,43 @@ def verify_slack_signature(body: bytes, timestamp: str, signature: str) -> bool:
 
 @app.post("/slack")
 async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = Header(None), x_slack_signature: Optional[str] = Header(None)):
+    # Log incoming request headers for debugging
+    logger.info(f"Incoming Slack request - Headers: {dict(req.headers)}")
+    logger.info(f"Timestamp header: {x_slack_request_timestamp}")
+    logger.info(f"Signature header: {x_slack_signature}")
+    logger.info(f"TEST_MODE: {TEST_MODE}")
+    
     # Get raw body first to check if it's empty
     raw_body = await req.body()
+    logger.info(f"Raw body length: {len(raw_body)} bytes")
 
     if not raw_body:
+        logger.error("Received empty request body")
         raise HTTPException(status_code=400, detail="Empty request body")
 
     try:
         body = json.loads(raw_body)
+        logger.info(f"Parsed JSON body keys: {list(body.keys())}")
+        logger.info(f"Body type: {body.get('type', 'unknown')}")
     except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {str(e)} - Raw body: {raw_body[:500]}")
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {str(e)}")
 
     # Handle Slack URL verification challenge (bypass signature verification)
     if "challenge" in body:
-        logger.info("Slack URL verification challenge received")
+        logger.info(f"Slack URL verification challenge received: {body.get('challenge', 'unknown')}")
         return {"challenge": body["challenge"]}
 
-    # Verify signature for all other requests (skip in test mode)
-    if not TEST_MODE and not verify_slack_signature(raw_body, x_slack_request_timestamp, x_slack_signature):
-        logger.error("Slack request verification failed")
-        raise HTTPException(status_code=403, detail="Invalid Slack signature")
+    # Log signature verification details
+    logger.info(f"About to verify signature - TEST_MODE: {TEST_MODE}")
+    if not TEST_MODE:
+        signature_valid = verify_slack_signature(raw_body, x_slack_request_timestamp, x_slack_signature)
+        logger.info(f"Signature verification result: {signature_valid}")
+        if not signature_valid:
+            logger.error(f"Slack request verification failed - Timestamp: {x_slack_request_timestamp}, Signature: {x_slack_signature}")
+            raise HTTPException(status_code=403, detail="Invalid Slack signature")
+    else:
+        logger.info("Skipping signature verification due to TEST_MODE")
 
     slack_msg = SlackMessage(**body)
     event = slack_msg.event
