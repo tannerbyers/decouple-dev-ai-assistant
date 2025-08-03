@@ -8,6 +8,7 @@ os.environ['SLACK_BOT_TOKEN'] = 'fake_slack_token'
 os.environ['NOTION_API_KEY'] = 'fake_notion_key'
 os.environ['NOTION_DB_ID'] = 'fake_db_id'
 os.environ['OPENAI_API_KEY'] = 'fake_openai_key'
+os.environ['TEST_MODE'] = 'true'
 
 from main import app, fetch_open_tasks
 
