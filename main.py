@@ -8,6 +8,7 @@ from notion_client.errors import APIResponseError
 from dataclasses import dataclass, asdict
 from enum import Enum
 
+# Initialize FastAPI application
 app = FastAPI()
 
 # Environment variables
@@ -69,10 +70,6 @@ else:
     print("Warning: OPENAI_API_KEY not found in environment variables")
 notion = NotionClient(auth=NOTION_API_KEY)
 
-# Simple in-memory conversation storage for thread context
-# In production, you might want to use Redis or a database
-thread_conversations = {}
-
 # Business goal management classes
 class GoalStatus(Enum):
     NOT_STARTED = "not_started"
@@ -115,123 +112,51 @@ class BusinessGoal:
 # In-memory goal storage (in production, use database)
 business_goals: Dict[str, BusinessGoal] = {}
 
-def detect_thread_context(channel, user_id):
-    """Try to detect if a slash command was used in a thread by checking recent messages."""
+def load_business_goals_from_json(filename: str = "business_goals.json") -> None:
+    """Load business goals from JSON file into memory."""
     try:
-        # Get recent conversation history to see if user recently posted in a thread
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                data = json.load(f)
+                for goal_id, goal_data in data.items():
+                    # Convert string enums back to enum objects
+                    goal_data['area'] = BusinessArea(goal_data['area'].lower())
+                    goal_data['status'] = GoalStatus(goal_data['status'])
+                    goal_data['priority'] = Priority(goal_data['priority'])
+                    
+                    business_goals[goal_id] = BusinessGoal(**goal_data)
+                
+                logger.info(f"Loaded {len(business_goals)} business goals from {filename}")
+        else:
+            logger.warning(f"Business goals file {filename} not found. Starting with empty goals.")
+    except Exception as e:
+        logger.error(f"Error loading business goals from {filename}: {e}")
+        logger.info("Starting with empty business goals.")
+
+# Load business goals from JSON file at startup
+load_business_goals_from_json()
+
+def get_user_name(user_id: str) -> str:
+    """Get user's display name from Slack API"""
+    try:
         response = requests.get(
-            "https://slack.com/api/conversations.history",
+            "https://slack.com/api/users.info",
             headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
-            params={
-                "channel": channel,
-                "limit": 20,  # Check more messages for better detection
-                "inclusive": True
-            },
+            params={"user": user_id},
             timeout=5
         )
         
         if response.ok:
             data = response.json()
-            messages = data.get("messages", [])
-            current_time = time.time()
-            
-            # Strategy 1: Look for recent messages from the same user that have thread_ts
-            for message in messages:
-                if (message.get("user") == user_id and 
-                    message.get("thread_ts") and 
-                    "text" in message):
-                    
-                    message_ts = float(message.get("ts", 0))
-                    if current_time - message_ts < 300:  # 5 minutes
-                        logger.info(f"Found recent user message in thread: {message.get('thread_ts')}")
-                        return message.get("thread_ts")
-            
-            # Strategy 2: Look for the most recent active thread in the channel
-            # Check if there are any recent thread replies (messages with thread_ts)
-            recent_thread_ts = None
-            most_recent_thread_time = 0
-            
-            for message in messages:
-                if message.get("thread_ts"):
-                    message_ts = float(message.get("ts", 0))
-                    # If this thread reply is recent (within 10 minutes) and more recent than others
-                    if (current_time - message_ts < 600 and  # 10 minutes
-                        message_ts > most_recent_thread_time):
-                        recent_thread_ts = message.get("thread_ts")
-                        most_recent_thread_time = message_ts
-            
-            # Only return if we found a recent thread (not just any thread)
-            if recent_thread_ts and most_recent_thread_time > 0:
-                logger.info(f"Detected most recent active thread: {recent_thread_ts}")
-                return recent_thread_ts
-            
-            # Strategy 3: Look for threads started by this user recently
-            for message in messages:
-                if (message.get("user") == user_id and 
-                    not message.get("thread_ts") and  # This is a parent message, not a reply
-                    "text" in message):
-                    
-                    message_ts = float(message.get("ts", 0))
-                    if current_time - message_ts < 1800:  # 30 minutes
-                        # Check if this message has replies (indicating it's a thread parent)
-                        if message.get("reply_count", 0) > 0:
-                            logger.info(f"Found recent thread started by user: {message.get('ts')}")
-                            return message.get("ts")  # Use the parent message timestamp as thread_ts
-            
-            logger.info("No recent thread context detected for slash command")
-        else:
-            logger.warning(f"Failed to fetch conversation history: {response.text}")
-            
+            if data.get("ok"):
+                user = data.get("user", {})
+                return user.get("display_name") or user.get("real_name") or user.get("name") or f"User {user_id}"
+        
+        logger.warning(f"Failed to get user name for {user_id}: {response.text}")
+        return f"User {user_id}"
     except Exception as e:
-        logger.warning(f"Error detecting thread context: {e}")
-    
-    return None
-
-def get_thread_context(thread_ts, channel, user_text):
-    """Get conversation context for a thread or start new context."""
-    thread_key = f"{channel}:{thread_ts}" if thread_ts else None
-    
-    if thread_key and thread_key in thread_conversations:
-        # Continue existing thread conversation
-        context = thread_conversations[thread_key]
-        context['messages'].append(f"User: {user_text}")
-        logger.info(f"Continuing thread conversation in {thread_key} ({len(context['messages'])} messages)")
-        return context
-    else:
-        # Start new conversation (either new thread or no thread)
-        context = {
-            'messages': [f"User: {user_text}"],
-            'created_at': time.time()
-        }
-        if thread_key:
-            thread_conversations[thread_key] = context
-            logger.info(f"Started new thread conversation: {thread_key}")
-        else:
-            logger.info("Processing standalone message (no thread)")
-        return context
-
-def update_thread_context(thread_ts, channel, ai_response):
-    """Update thread context with AI response."""
-    thread_key = f"{channel}:{thread_ts}" if thread_ts else None
-    
-    if thread_key and thread_key in thread_conversations:
-        thread_conversations[thread_key]['messages'].append(f"OpsBrain: {ai_response}")
-        # Keep only last 10 messages to prevent memory bloat
-        if len(thread_conversations[thread_key]['messages']) > 10:
-            thread_conversations[thread_key]['messages'] = thread_conversations[thread_key]['messages'][-10:]
-
-def cleanup_old_threads():
-    """Clean up thread conversations older than 24 hours."""
-    current_time = time.time()
-    old_threads = []
-    
-    for thread_key, context in thread_conversations.items():
-        if current_time - context['created_at'] > 86400:  # 24 hours
-            old_threads.append(thread_key)
-    
-    for thread_key in old_threads:
-        del thread_conversations[thread_key]
-        logger.info(f"Cleaned up old thread: {thread_key}")
+        logger.error(f"Error getting user name: {e}")
+        return f"User {user_id}"
 
 def create_business_goal(title: str, description: str, area: str, target_date: str, 
                         weekly_actions: List[str] = None, daily_actions: List[str] = None,
@@ -850,6 +775,8 @@ def parse_database_request(user_text: str) -> Dict:
 class SlackMessage(BaseModel):
     type: str
     event: dict
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
 
 def fetch_open_tasks():
     try:
@@ -1021,62 +948,8 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
             
             def send_delayed_response():
                 try:
-                    # Check if user explicitly wants to continue a thread
-                    explicit_thread_request = False
-                    processed_user_text = user_text
-                    
-                    # Look for thread continuation keywords
-                    thread_keywords = ['continue', 'thread', 'reply', 'follow up', 'followup']
-                    user_text_lower = user_text.lower()
-                    
-                    for keyword in thread_keywords:
-                        if keyword in user_text_lower:
-                            explicit_thread_request = True
-                            # Remove the keyword from the processed text
-                            processed_user_text = user_text.replace(keyword, '').replace(keyword.title(), '').strip()
-                            # Clean up extra spaces
-                            processed_user_text = ' '.join(processed_user_text.split())
-                            logger.info(f"User explicitly requested thread continuation with keyword: {keyword}")
-                            break
-                    
-                    # Try to detect if slash command was used in a thread by checking recent messages
-                    thread_ts = detect_thread_context(channel, user_id)
-                    
-                    # If user explicitly requested thread continuation but we didn't find one,
-                    # be more aggressive in finding recent threads
-                    if explicit_thread_request and not thread_ts:
-                        logger.info("User requested thread continuation but none detected, searching more broadly...")
-                        # Look for any recent thread activity in the channel (expand search)
-                        try:
-                            response = requests.get(
-                                "https://slack.com/api/conversations.history",
-                                headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
-                                params={
-                                    "channel": channel,
-                                    "limit": 50,  # Search more messages
-                                    "inclusive": True
-                                },
-                                timeout=5
-                            )
-                            
-                            if response.ok:
-                                data = response.json()
-                                messages = data.get("messages", [])
-                                current_time = time.time()
-                                
-                                # Look for any thread activity in the last hour
-                                for message in messages:
-                                    if message.get("thread_ts"):
-                                        message_ts = float(message.get("ts", 0))
-                                        if current_time - message_ts < 3600:  # 1 hour
-                                            thread_ts = message.get("thread_ts")
-                                            logger.info(f"Found thread for explicit continuation: {thread_ts}")
-                                            break
-                        except Exception as e:
-                            logger.warning(f"Error in broad thread search: {e}")
-                    
-                    # Use processed text (with keywords removed) for context
-                    context = get_thread_context(thread_ts, channel, processed_user_text or user_text)
+                    # Simple context for this request (no thread detection)
+                    context = {'messages': [f"User: {user_text}"], 'created_at': time.time()}
                     
                     # First, post the original command to make it visible in the channel
                     if user_text.strip():  # Only post if there's actual text
@@ -1085,22 +958,15 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
                                 "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
                                 "Content-type": "application/json"
                             }, json={
-                                "channel": channel,
-                                "text": f"{command} {user_text}",
-                                "thread_ts": thread_ts,  # Reply in thread if thread_ts exists
-                                "reply_broadcast": False  # Don't broadcast thread replies to channel
+                "channel": channel,
+                "text": f"*{get_user_name(user_id)}* used `{command}`: {user_text}"
                             }, timeout=10)
                             
                             if not original_message_response.ok:
                                 logger.error(f"Failed to post original command: {original_message_response.status_code} - {original_message_response.text}")
                             else:
                                 logger.info("Successfully posted original slash command to channel")
-                                # If this is a new thread, use the message timestamp as thread_ts for the response
-                                if not thread_ts:
-                                    response_data = original_message_response.json()
-                                    if response_data.get('ok'):
-                                        thread_ts = response_data.get('ts')
-                                        logger.info(f"Starting new thread with ts: {thread_ts}")
+                                # Original message posted successfully
                         except requests.RequestException as e:
                             logger.error(f"Failed to post original message to Slack: {e}")
                     
@@ -1117,10 +983,10 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
                             context_prompt = f"\n\nConversation context:\n{conversation_context}" if conversation_context else ""
                             
                             # Analyze the business context of the request
-                            analysis = analyze_business_request(user_text or processed_user_text)
+                            analysis = analyze_business_request(user_text)
                             
                             # Check if this requires database action
-                            db_request = parse_database_request(user_text or processed_user_text)
+                            db_request = parse_database_request(user_text)
                             
                             # Execute database action if needed
                             db_result = None
@@ -1134,13 +1000,13 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
                             elif analysis['is_ceo_focused'] or analysis['request_type'] in ['dashboard', 'goal_creation', 'planning']:
                                 # Use CEO-focused response generation
                                 if analysis['request_type'] in ['dashboard', 'goal_creation', 'planning']:
-                                    ai_response = generate_ceo_insights(user_text or processed_user_text, tasks, analysis)
+                                    ai_response = generate_ceo_insights(user_text, tasks, analysis)
                                     if not ai_response.startswith('📊') and not ai_response.startswith('🎯') and not ai_response.startswith('📋'):
                                         # It's a prompt, not a direct response
                                         ai_message = llm.invoke(ai_response)
                                         ai_response = ai_message.content
                                 else:
-                                    prompt = generate_ceo_insights(user_text or processed_user_text, tasks, analysis)
+                                    prompt = generate_ceo_insights(user_text, tasks, analysis)
                                     ai_message = llm.invoke(prompt)
                                     ai_response = ai_message.content
                             else:
@@ -1166,19 +1032,16 @@ Provide 1-2 focused actions or strategic insights that help grow the business. F
                             logger.error(f"OpenAI API error: {e}")
                             ai_response = "Sorry, I'm having trouble generating a response right now."
                     
-                    # Update context with AI response
-                    update_thread_context(thread_ts, channel, ai_response)
+                    # No thread context to update since we're posting directly in channel
                     
-                    # Post response as a regular message in the channel (this will appear as a reply thread)
+                    # Post response directly in the channel
                     try:
                         slack_response = requests.post("https://slack.com/api/chat.postMessage", headers={
                             "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
                             "Content-type": "application/json"
                         }, json={
                             "channel": channel,
-                            "text": ai_response,
-                            "thread_ts": thread_ts,  # Reply in thread if thread_ts exists
-                            "reply_broadcast": False  # Don't broadcast thread replies to channel
+                            "text": ai_response
                         }, timeout=10)
                         
                         if not slack_response.ok:
@@ -1216,12 +1079,12 @@ Provide 1-2 focused actions or strategic insights that help grow the business. F
             channel = event["channel"]
             thread_ts = event.get("thread_ts")  # Get thread timestamp if message is in a thread
             
-            # Get thread context for conversation continuity
-            context = get_thread_context(thread_ts, channel, user_text)
-            
             # For events, get tasks and generate response directly (no timeout concern)
             tasks = fetch_open_tasks()
             task_list = "\n".join(f"- {t}" for t in tasks)
+            
+            # Simple context for event messages
+            context = {'messages': [f"User: {user_text}"], 'created_at': time.time()}
 
             if not llm:
                 response = "Sorry, OpenAI API key is not configured."
@@ -1281,9 +1144,6 @@ Provide 1-2 focused actions or strategic insights that help grow the business. F
                     logger.error(f"OpenAI API error: {e}")
                     response = "Sorry, I'm having trouble generating a response right now."
             
-            # Update thread context with AI response
-            update_thread_context(thread_ts, channel, response)
-            
             # Post the message via API (include thread_ts if this is a thread reply)
             message_data = {
                 "channel": channel,
@@ -1303,10 +1163,6 @@ Provide 1-2 focused actions or strategic insights that help grow the business. F
             except requests.RequestException as e:
                 logger.error(f"Failed to send message to Slack: {e}")
             
-            # Cleanup old threads periodically (every 100 messages)
-            import random
-            if random.randint(1, 100) == 1:
-                cleanup_old_threads()
         else:
             logger.error(f"Unknown Slack request format: {list(body.keys())}")
             return {"ok": True}

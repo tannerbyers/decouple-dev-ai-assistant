@@ -21,11 +21,9 @@ class TestMessageVisibility:
     @patch('main.requests.post')
     @patch('main.fetch_open_tasks')
     @patch('main.llm')
-    @patch('main.detect_thread_context')
-    def test_slash_command_shows_original_message_in_channel(self, mock_detect_thread, mock_llm, mock_fetch_tasks, mock_requests_post):
+    def test_slash_command_shows_original_message_in_channel(self, mock_llm, mock_fetch_tasks, mock_requests_post):
         """Test that slash command shows the original user message in the channel."""
         # Mock dependencies
-        mock_detect_thread.return_value = None
         mock_fetch_tasks.return_value = ["Task 1", "Task 2"]
         mock_llm.invoke.return_value = MagicMock(content="Here's your analysis")
         mock_requests_post.return_value.ok = True
@@ -73,7 +71,7 @@ class TestMessageVisibility:
             
             # First call should post the original command
             original_command_call = calls[0]
-            assert "/ai What should I work on today?" in str(original_command_call)
+            assert "*User U123* used `/ai`: What should I work on today?" in str(original_command_call)
             
             # Second call should post the AI response (using the mocked LLM response)
             ai_response_call = calls[1]

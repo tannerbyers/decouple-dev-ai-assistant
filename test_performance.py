@@ -31,7 +31,7 @@ def test_health_check_performance():
     assert response.status_code == 200
     assert elapsed < 0.1  # Should be under 100ms
 
-@patch('main.threading.Thread')
+@patch('threading.Thread')
 def test_slash_command_response_time(mock_thread):
     """Slash commands must respond within 3 seconds."""
     # Mock thread to prevent actual background processing

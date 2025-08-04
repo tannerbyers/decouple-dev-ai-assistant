@@ -1,0 +1,206 @@
+{
+  "sales_1": {
+    "id": "sales_1",
+    "title": "Lead Generation Pipeline",
+    "description": "Build and maintain a consistent lead generation system through strategic content marketing and engagement",
+    "category": "SALES",
+    "status": "in_progress",
+    "priority": 3,
+    "target_date": "",
+    "progress_percentage": 0,
+    "weekly_actions": [
+      "Create valuable content based on client insights and industry trends",
+      "Analyze content performance and optimize strategy",
+      "Engage with prospects through multiple channels"
+    ],
+    "daily_actions": [
+      "Share valuable content on social platforms",
+      "Respond to engagement and nurture prospects",
+      "Update CRM with new lead information and insights"
+    ],
+    "success_metrics": {
+      "lead_quality": "High conversion rate",
+      "engagement_rate": "Above industry benchmark",
+      "pipeline_health": "Consistent flow"
+    },
+    "created_date": "2025-01-01T00:00:00",
+    "last_updated": "2025-01-01T00:00:00",
+    "notes": "Focus on providing value first, building trust and authority"
+  },
+  "sales_2": {
+    "id": "sales_2",
+    "title": "Client Acquisition",
+    "description": "Close 3 new agency clients at $5k+/month retainer by March 31, 2025",
+    "category": "SALES",
+    "status": "in_progress",
+    "priority": 4,
+    "target_date": "2025-03-31",
+    "progress_percentage": 0,
+    "weekly_actions": [
+      "Identify 5 new prospects via LinkedIn/referrals",
+      "Send personalized outreach to 5 prospects",
+      "Follow up with previous week's prospects",
+      "Conduct 2 discovery calls with interested prospects",
+      "Send proposals to qualified prospects"
+    ],
+    "daily_actions": [],
+    "success_metrics": {
+      "new_clients": "3",
+      "monthly_recurring_revenue": "$15000",
+      "average_deal_size": "$5000"
+    },
+    "created_date": "2025-01-01T00:00:00",
+    "last_updated": "2025-01-01T00:00:00",
+    "notes": ""
+  },
+  "delivery_1": {
+    "id": "delivery_1",
+    "title": "Service Standardization",
+    "description": "Create standardized delivery process for 80% of common client requests by Feb 28, 2025",
+    "category": "DELIVERY",
+    "status": "in_progress",
+    "priority": 3,
+    "target_date": "2025-02-28",
+    "progress_percentage": 0,
+    "weekly_actions": [
+      "Document one delivery process (2 hours)",
+      "Test documented process with current client",
+      "Refine process based on testing feedback"
+    ],
+    "daily_actions": [
+      "Review all client communications for response time",
+      "Run through quality checklist before delivery",
+      "Send satisfaction survey within 48 hours after delivery"
+    ],
+    "success_metrics": {
+      "processes_documented": "5",
+      "time_reduction": "40%",
+      "standardization_coverage": "80%"
+    },
+    "created_date": "2025-01-01T00:00:00",
+    "last_updated": "2025-01-01T00:00:00",
+    "notes": ""
+  },
+  "delivery_2": {
+    "id": "delivery_2",
+    "title": "Quality Assurance",
+    "description": "Achieve 95% client satisfaction score by March 31, 2025",
+    "category": "DELIVERY",
+    "status": "in_progress",
+    "priority": 3,
+    "target_date": "2025-03-31",
+    "progress_percentage": 0,
+    "weekly_actions": [],
+    "daily_actions": [
+      "Review all client communications for response time",
+      "Run through quality checklist before delivery",
+      "Send satisfaction survey within 48 hours after delivery"
+    ],
+    "success_metrics": {
+      "client_satisfaction_score": "95%",
+      "nps_survey": "after each project delivery",
+      "response_time": "within 48 hours"
+    },
+    "created_date": "2025-01-01T00:00:00",
+    "last_updated": "2025-01-01T00:00:00",
+    "notes": ""
+  },
+  "product_1": {
+    "id": "product_1",
+    "title": "OpsBrain Enhancement",
+    "description": "Complete 8 high-impact features from TODO.md by March 31, 2025",
+    "category": "PRODUCT",
+    "status": "in_progress",
+    "priority": 3,
+    "target_date": "2025-03-31",
+    "progress_percentage": 0,
+    "weekly_actions": [
+      "Development and testing",
+      "Deployment and documentation",
+      "Client feedback collection and iteration planning"
+    ],
+    "daily_actions": [],
+    "success_metrics": {
+      "features_completed": "8",
+      "features_per_month": "2",
+      "deployment_frequency": "bi-weekly"
+    },
+    "created_date": "2025-01-01T00:00:00",
+    "last_updated": "2025-01-01T00:00:00",
+    "notes": "Focus on bi-directional Slack-Notion sync and smart task parsing"
+  },
+  "financial_1": {
+    "id": "financial_1",
+    "title": "Revenue Optimization",
+    "description": "Increase profit margin to 70% by optimizing processes and pricing by March 31, 2025",
+    "category": "FINANCIAL",
+    "status": "in_progress",
+    "priority": 3,
+    "target_date": "2025-03-31",
+    "progress_percentage": 0,
+    "weekly_actions": [
+      "Review previous week's time allocation",
+      "Update pricing for new proposals based on efficiency gains",
+      "Calculate weekly revenue and expenses"
+    ],
+    "daily_actions": [],
+    "success_metrics": {
+      "profit_margin": "70%",
+      "current_margin": "60%",
+      "weekly_p_and_l_review": "yes",
+      "monthly_margin_analysis": "yes"
+    },
+    "created_date": "2025-01-01T00:00:00",
+    "last_updated": "2025-01-01T00:00:00",
+    "notes": ""
+  },
+  "team_1": {
+    "id": "team_1",
+    "title": "Strategic Hiring Plan",
+    "description": "Hire first contractor (VA or junior developer) by Feb 28, 2025",
+    "category": "TEAM",
+    "status": "not_started",
+    "priority": 2,
+    "target_date": "2025-02-28",
+    "progress_percentage": 0,
+    "weekly_actions": [
+      "Define role requirements and compensation",
+      "Post job and screen initial candidates",
+      "Interview top 5 candidates",
+      "Make offer and begin onboarding"
+    ],
+    "daily_actions": [],
+    "success_metrics": {
+      "contractor_hours": "20 hours/week",
+      "contractor_cost": "$2k/month",
+      "role_focus": "content creation and lead research"
+    },
+    "created_date": "2025-01-01T00:00:00",
+    "last_updated": "2025-01-01T00:00:00",
+    "notes": "Virtual assistant for content creation and lead research"
+  },
+  "process_1": {
+    "id": "process_1",
+    "title": "CEO Dashboard",
+    "description": "Create automated weekly CEO dashboard by Feb 15, 2025",
+    "category": "PROCESS",
+    "status": "not_started",
+    "priority": 2,
+    "target_date": "2025-02-15",
+    "progress_percentage": 0,
+    "weekly_actions": [
+      "Review dashboard and identify trends",
+      "Make strategic adjustments based on data",
+      "Plan next week based on dashboard insights"
+    ],
+    "daily_actions": [],
+    "success_metrics": {
+      "time_savings": "30 minutes weekly vs current 3 hours",
+      "automation_level": "key metrics automatically compiled",
+      "review_frequency": "every Monday"
+    },
+    "created_date": "2025-01-01T00:00:00",
+    "last_updated": "2025-01-01T00:00:00",
+    "notes": "Leverage existing OpsBrain Notion integration"
+  }
+}
