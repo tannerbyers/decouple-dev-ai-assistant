@@ -119,10 +119,23 @@ def load_business_goals_from_json(filename: str = "business_goals.json") -> None
             with open(filename, 'r') as f:
                 data = json.load(f)
                 for goal_id, goal_data in data.items():
+                    # Handle both 'area' and 'category' field names
+                    area_value = goal_data.get('area') or goal_data.get('category', 'sales')
+                    if isinstance(area_value, str):
+                        area_value = area_value.lower()
+                    
                     # Convert string enums back to enum objects
-                    goal_data['area'] = BusinessArea(goal_data['area'].lower())
+                    goal_data['area'] = BusinessArea(area_value)
                     goal_data['status'] = GoalStatus(goal_data['status'])
                     goal_data['priority'] = Priority(goal_data['priority'])
+                    
+                    # Map legacy field names to new field names if needed
+                    goal_data['progress'] = goal_data.get('progress', goal_data.get('progress_percentage', 0))
+                    
+                    # Remove legacy fields that aren't in the dataclass
+                    legacy_fields = ['category', 'progress_percentage']
+                    for field in legacy_fields:
+                        goal_data.pop(field, None)
                     
                     business_goals[goal_id] = BusinessGoal(**goal_data)
                 

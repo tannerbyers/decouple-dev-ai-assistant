@@ -11,3 +11,4 @@ pydantic
 pytest
 httpx
 pytest-mock
+psutil
