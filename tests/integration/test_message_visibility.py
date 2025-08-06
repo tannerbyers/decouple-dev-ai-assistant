@@ -76,6 +76,8 @@ class TestMessageVisibility:
             # Second call should post the AI response (using the mocked LLM response)
             ai_response_call = calls[1]
             assert "Here's your analysis" in str(ai_response_call)
+            # Should also contain version timestamp
+            assert "_OpsBrain v" in str(ai_response_call)
             
             # Verify both calls are to the correct channel
             for call in calls:
@@ -109,6 +111,9 @@ class TestMessageVisibility:
         mock_requests_post.assert_called_once()
         call_args = mock_requests_post.call_args
         
-        # Check the message content
-        assert call_args[1]['json']['text'] == "Response to event"
+        # Check the message content includes the response and version timestamp
+        message_text = call_args[1]['json']['text']
+        assert "Response to event" in message_text
+        assert "_OpsBrain v" in message_text
+        assert "Updated:" in message_text
         assert call_args[1]['json']['channel'] == "C123"

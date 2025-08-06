@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException, Header
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from notion_client import Client as NotionClient
-import os, requests, json, hmac, hashlib, time, logging, datetime
+import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess
 from typing import Optional, Dict, List, Tuple
 from notion_client.errors import APIResponseError
 from dataclasses import dataclass, asdict
@@ -150,6 +150,25 @@ def load_business_goals_from_json(filename: str = "business_goals.json") -> None
 
 # Load business goals from JSON file at startup
 load_business_goals_from_json()
+
+def get_app_version() -> str:
+    """Get the current app version from git or fallback to timestamp."""
+    try:
+        # Try to get git commit hash
+        result = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], 
+                               capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+    # Fallback to timestamp
+    return datetime.datetime.now().strftime('%Y%m%d-%H%M')
+
+def add_version_timestamp(response: str) -> str:
+    """Add version and timestamp information to response."""
+    version = get_app_version()
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M UTC')
+    return f"{response}\n\n---\n_OpsBrain v{version} • Updated: {timestamp}_"
 
 def get_user_name(user_id: str) -> str:
     """Get user's display name from Slack API"""
@@ -1183,7 +1202,7 @@ Provide 1-2 focused actions or strategic insights that help grow the business. F
                             "Content-type": "application/json"
                         }, json={
                             "channel": channel,
-                            "text": ai_response
+                            "text": add_version_timestamp(ai_response)
                         }, timeout=10)
                         
                         if not slack_response.ok:
@@ -1315,7 +1334,7 @@ Provide 1-2 focused actions or strategic insights that help grow the business. F
             # Post the message via API (include thread_ts if this is a thread reply)
             message_data = {
                 "channel": channel,
-                "text": response
+                "text": add_version_timestamp(response)
             }
             if thread_ts:
                 message_data["thread_ts"] = thread_ts
