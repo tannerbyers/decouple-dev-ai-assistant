@@ -257,11 +257,11 @@ class TestResponseGeneration:
         # This should return a prompt for the LLM
         prompt = generate_ceo_insights("How do I grow sales?", tasks, analysis)
         
-        assert "You are OpsBrain, a strategic AI assistant" in prompt
-        assert "solo dev founder building a $10K/month agency" in prompt
+        assert "You are OpsBrain, a CEO-level AI assistant" in prompt
+        assert "Focus areas detected: sales" in prompt
         assert "How do I grow sales?" in prompt
-        assert "Task 1" in prompt
-        assert "As a CEO advisor, provide:" in prompt
+        assert "Current tasks: 2 pending" in prompt
+        assert "RESPONSE STYLE:" in prompt
 
 
 class TestNotionDatabaseOperations:

@@ -10,8 +10,12 @@ os.environ['NOTION_API_KEY'] = 'fake_notion_key'
 os.environ['NOTION_DB_ID'] = 'fake_db_id'
 os.environ['OPENAI_API_KEY'] = 'fake_openai_key'
 os.environ['TEST_MODE'] = 'true'
+# Trello environment variables for CEO-level functionality
+os.environ['TRELLO_API_KEY'] = 'fake_trello_key'
+os.environ['TRELLO_TOKEN'] = 'fake_trello_token'
+os.environ['TRELLO_BOARD_ID'] = 'fake_board_id'
 
-from main import app, fetch_open_tasks, analyze_business_request, handle_task_backlog_request, BusinessGoal, GoalStatus, Priority, BusinessArea, NotionDBInfo, generate_task_backlog, bulk_create_notion_tasks
+from main import app, fetch_open_tasks, analyze_business_request, handle_task_backlog_request, BusinessGoal, GoalStatus, Priority, BusinessArea, NotionDBInfo, generate_task_backlog, bulk_create_notion_tasks, parse_database_request, execute_database_action, generate_ceo_insights
 
 client = TestClient(app)
 
@@ -64,8 +68,8 @@ def test_slack_valid_request(mock_llm, mock_fetch_tasks, mock_requests_post):
     # Mock the fetch_open_tasks function
     mock_fetch_tasks.return_value = ["Task 1", "Task 2"]
     
-    # Mock the LLM prediction
-    mock_llm.invoke.return_value = MagicMock(content="Here are your tasks for today")
+    # Mock the LLM prediction with CEO-style response
+    mock_llm.invoke.return_value = MagicMock(content="Focus on revenue-generating activities first. Complete client calls by 2pm.")
     
     # Mock the requests.post call
     mock_requests_post.return_value.status_code = 200
@@ -302,3 +306,176 @@ def test_slack_slash_command_with_context(mock_thread, mock_llm, mock_fetch_task
     # Verify background thread was started
     mock_thread.assert_called()
     mock_thread_instance.start.assert_called()
+
+# Test CEO-level parsing for Trello commands
+def test_parse_database_request_trello_done():
+    """Test parsing of CEO-style Trello done commands"""
+    test_cases = [
+        "Set AI agent status to done",
+        "Mark AI agent as done", 
+        "Move AI agent to done",
+        "AI agent task done"
+    ]
+    
+    for text in test_cases:
+        result = parse_database_request(text)
+        assert result['action'] == 'trello_done', f"Failed for text: '{text}'"
+        assert result['requires_db_action'] is True
+        assert 'task_name' in result['params']
+
+def test_parse_database_request_add_business_tasks():
+    """Test parsing of comprehensive business task requests"""
+    test_cases = [
+        "add missing tasks",
+        "create all tasks", 
+        "missing business tasks"
+    ]
+    
+    for text in test_cases:
+        result = parse_database_request(text)
+        assert result['action'] == 'add_business_tasks', f"Failed for text: '{text}'"
+        assert result['requires_db_action'] is True
+        assert 'areas' in result['params']
+        assert len(result['params']['areas']) == 5  # All business areas
+
+# Test CEO insights generation
+def test_generate_ceo_insights_concise_style(business_goals_fixture):
+    """Test that CEO insights generate concise, action-oriented prompts"""
+    user_text = "What should I focus on today?"
+    tasks = ["Task 1", "Task 2", "Task 3"]
+    analysis = {'detected_areas': ['sales'], 'request_type': 'general', 'is_ceo_focused': True}
+    
+    prompt = generate_ceo_insights(user_text, tasks, analysis)
+    
+    # Verify CEO-style prompt characteristics
+    assert "CEO-level AI assistant" in prompt
+    assert "RESPONSE STYLE" in prompt or "RESPONSE RULES" in prompt
+    assert "Task completed" in prompt
+    assert "Issue:" in prompt
+    assert "Maximum 2 sentences" in prompt
+    assert "revenue" in prompt.lower() or "efficiency" in prompt.lower()
+
+@patch('main.trello_client')
+def test_execute_database_action_trello_done_success(mock_trello_client):
+    """Test successful Trello task completion"""
+    mock_trello_client.is_configured.return_value = True
+    mock_trello_client.move_task_to_done.return_value = True
+    
+    result = execute_database_action('trello_done', task_name='ai agent')
+    
+    assert result['success'] is True
+    assert result['message'] == "Task completed"
+    assert result['action'] == 'trello_done'
+    mock_trello_client.move_task_to_done.assert_called_once_with('ai agent')
+
+@patch('main.trello_client')
+def test_execute_database_action_trello_done_failure(mock_trello_client):
+    """Test failed Trello task completion"""
+    mock_trello_client.is_configured.return_value = True
+    mock_trello_client.move_task_to_done.return_value = False
+    
+    result = execute_database_action('trello_done', task_name='nonexistent task')
+    
+    assert result['success'] is False
+    assert "Issue: Could not find or move task" in result['message']
+    assert result['action'] == 'trello_done'
+
+@patch('main.trello_client')
+def test_execute_database_action_trello_not_configured(mock_trello_client):
+    """Test Trello actions when not configured"""
+    mock_trello_client.is_configured.return_value = False
+    
+    result = execute_database_action('trello_done', task_name='ai agent')
+    
+    assert result['success'] is False
+    assert result['message'] == "Issue: Trello not configured"
+
+@patch('main.trello_client')
+def test_execute_database_action_add_business_tasks(mock_trello_client):
+    """Test comprehensive business task creation"""
+    mock_trello_client.is_configured.return_value = True
+    mock_trello_client.add_missing_business_tasks.return_value = 25
+    
+    areas = ['sales', 'delivery', 'financial', 'operations', 'team']
+    result = execute_database_action('add_business_tasks', areas=areas)
+    
+    assert result['success'] is True
+    assert result['message'] == "Added 25 business tasks"
+    mock_trello_client.add_missing_business_tasks.assert_called_once_with(areas)
+
+# Test CEO-style Slack responses with database actions
+@patch('main.trello_client')
+@patch('main.requests.post')
+@patch('main.fetch_open_tasks')
+@patch('main.llm')
+def test_slack_ceo_trello_command(mock_llm, mock_fetch_tasks, mock_requests_post, mock_trello_client):
+    """Test CEO-style Trello command processing"""
+    # Mock Trello success
+    mock_trello_client.is_configured.return_value = True
+    mock_trello_client.move_task_to_done.return_value = True
+    
+    # Mock other dependencies
+    mock_fetch_tasks.return_value = ["Task 1", "Task 2"]
+    mock_llm.invoke.return_value = MagicMock(content="Done")
+    mock_requests_post.return_value.status_code = 200
+    
+    response = client.post("/slack", json={
+        "type": "event_callback",
+        "event": {
+            "type": "message",
+            "text": "Set AI agent status to done",
+            "channel": "fake_channel",
+            "subtype": None
+        }
+    })
+    
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    
+    # Verify Trello was called
+    mock_trello_client.move_task_to_done.assert_called_once_with('ai agent')
+
+def test_analyze_business_request_ceo_focused():
+    """Test detection of CEO-focused requests"""
+    ceo_keywords = [
+        "What's the revenue impact?",
+        "Business strategy question", 
+        "How do we grow faster?",
+        "CEO priorities"
+    ]
+    
+    for text in ceo_keywords:
+        analysis = analyze_business_request(text)
+        assert analysis['is_ceo_focused'] is True, f"Failed to detect CEO focus in: '{text}'"
+
+def test_generate_dashboard_response():
+    """Test CEO dashboard generation"""
+    dashboard = {
+        'overview': {
+            'total_goals': 5,
+            'completed': 2,
+            'in_progress': 2,
+            'blocked': 1,
+            'completion_rate': 40.0
+        },
+        'area_progress': {
+            'sales': 60.0,
+            'delivery': 80.0
+        },
+        'high_priority_actions': [
+            {'area': 'sales', 'action': 'Call prospects', 'priority': 4},
+            {'area': 'delivery', 'action': 'Review quality', 'priority': 3}
+        ]
+    }
+    
+    # Import the function
+    from main import generate_dashboard_response
+    
+    response = generate_dashboard_response(dashboard)
+    
+    assert "📊 **CEO Dashboard Summary**" in response
+    assert "5 total • 40.0% complete" in response
+    assert "2 in progress • 1 blocked" in response
+    assert "Sales: 60.0%" in response
+    assert "Delivery: 80.0%" in response
+    assert "revenue-generating activities" in response

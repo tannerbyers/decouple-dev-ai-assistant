@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, HTTPException, Header
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from notion_client import Client as NotionClient
+from src.trello_client import trello_client
 import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess
 from typing import Optional, Dict, List, Tuple
 from notion_client.errors import APIResponseError
@@ -302,7 +303,7 @@ def analyze_business_request(user_text: str) -> Dict:
     return {
         'detected_areas': detected_areas,
         'request_type': detected_request_type,
-        'is_ceo_focused': any(word in user_lower for word in ['ceo', 'business', 'strategy', 'growth', 'revenue'])
+        'is_ceo_focused': any(word in user_lower for word in ['ceo', 'business', 'strategy', 'growth', 'revenue', 'grow'])
     }
 
 def generate_ceo_insights(user_text: str, tasks: List[str], analysis: Dict) -> str:
@@ -345,21 +346,23 @@ def generate_ceo_insights(user_text: str, tasks: List[str], analysis: Dict) -> s
         # General CEO-focused response
         task_list = "\n".join(f"- {t}" for t in tasks[:5])  # Top 5 tasks
         
-        prompt = f"""You are OpsBrain, a strategic AI assistant for a solo dev founder building a $10K/month agency in under 30 hrs/week.
+        prompt = f"""You are OpsBrain, a CEO-level AI assistant. Respond like a strategic executive - concise, action-oriented, results-focused.
 
 {business_context}
 
-Current task backlog (top 5):
-{task_list}
-
+Current tasks: {len(tasks)} pending
 User request: "{user_text}"
 
-As a CEO advisor, provide:
-1. One strategic insight relevant to their request
-2. Two specific, actionable next steps they can take today
-3. One metric they should track to measure progress
+RESPONSE STYLE:
+- If task completed successfully: "Task completed" or "Done"
+- If there's an issue: "Issue: [specific problem]"
+- For questions: Give 1-2 sentence strategic answer
+- For requests: Confirm action taken or identify blocking issue
+- No bullet points, no detailed explanations unless specifically asked
+- Focus on what's blocking revenue or efficiency
+- Maximum 2 sentences unless complex strategic question
 
-Keep response under 200 words, focused on revenue growth and efficiency. Use bullet points for clarity."""
+Respond now:"""
         
         return prompt
 
@@ -523,7 +526,7 @@ async def generate_task_backlog(user_text: str, business_goals: Dict, db_info: N
     """Generate a detailed task backlog based on business goals and user request."""
     goal_summary = "\n".join([f"- {g.title}: {g.description}" for g in business_goals.values()])
     
-    prompt = f"""You are OpsBrain, a CEO-level AI assistant.
+    prompt = f"""You are OpsBrain, a CEO-level AI assistant specializing in comprehensive task planning.
 
     Business Goals:
     {goal_summary}
@@ -532,9 +535,20 @@ async def generate_task_backlog(user_text: str, business_goals: Dict, db_info: N
 
     Notion Database Properties: {json.dumps(db_info.properties)}
 
-    Generate a detailed list of actionable tasks to achieve the user's request, aligned with business goals. For each task, provide a title, status, priority, project (if applicable), and notes. If a task requires a Standard Operating Procedure (SOP), mention it in the notes.
-
-    Output the tasks in a JSON array format, where each object has keys: 'title', 'status', 'priority', 'project', 'notes'.
+    CRITICAL: Generate a COMPLETE task backlog covering ALL areas of the business. Don't create partial lists.
+    
+    For business success, identify missing tasks in:
+    - Sales & Marketing (lead gen, content, outreach, proposals)
+    - Client Delivery (project setup, quality assurance, documentation)
+    - Operations (processes, systems, automation)
+    - Financial (pricing, invoicing, metrics tracking)
+    - Product Development (features, testing, deployment)
+    - Team & Hiring (recruitment, onboarding, management)
+    
+    Each task must have: title, status, priority (High/Medium/Low), project, notes
+    Include SOPs in notes where needed.
+    
+    Output as JSON array with complete task coverage - no partial lists.
     """
     
     try:
@@ -778,7 +792,35 @@ def execute_database_action(action_type: str, **kwargs) -> Dict:
     result = {"success": False, "message": "", "action": action_type}
     
     try:
-        if action_type == "create_task":
+        # Handle Trello actions with CEO-style responses
+        if action_type == "trello_done":
+            task_name = kwargs.get('task_name', 'task')
+            if trello_client.is_configured():
+                success = trello_client.move_task_to_done(task_name)
+                result["success"] = success
+                result["message"] = "Task completed" if success else f"Issue: Could not find or move task '{task_name}'"
+            else:
+                result["message"] = "Issue: Trello not configured"
+        
+        elif action_type == "trello_status":
+            task_name = kwargs.get('task_name', 'task')
+            if trello_client.is_configured():
+                status = trello_client.get_task_status(task_name)
+                result["success"] = status is not None
+                result["message"] = f"Status: {status}" if status else f"Issue: Task '{task_name}' not found"
+            else:
+                result["message"] = "Issue: Trello not configured"
+        
+        elif action_type == "add_business_tasks":
+            areas = kwargs.get('areas', [])
+            if trello_client.is_configured():
+                count = trello_client.add_missing_business_tasks(areas)
+                result["success"] = count > 0
+                result["message"] = f"Added {count} business tasks" if count > 0 else "Issue: No tasks created"
+            else:
+                result["message"] = "Issue: Trello not configured"
+        
+        elif action_type == "create_task":
             success = create_notion_task(
                 title=kwargs.get('title', ''),
                 status=kwargs.get('status', 'To Do'),
@@ -843,6 +885,9 @@ def parse_database_request(user_text: str) -> Dict:
         'create_client': ['add client', 'new client', 'create client', 'client:', 'prospect:'],
         'log_metric': ['log metric', 'record metric', 'track metric', 'metric:', 'kpi:'],
         'update_task': ['update task', 'complete task', 'finish task', 'mark done'],
+        'trello_done': ['status to done', 'status done', 'mark as done', 'mark done', 'task done', 'set to done', 'as done', 'to done'],
+        'trello_status': ['task status', 'check status', 'status of'],
+        'add_business_tasks': ['add missing tasks', 'create all tasks', 'missing business tasks'],
         'search': ['find', 'search', 'look for', 'show me']
     }
     
@@ -900,6 +945,23 @@ def parse_database_request(user_text: str) -> Dict:
             for keyword in action_keywords['create_client']:
                 name = name.replace(keyword, '', 1).strip()
             params['name'] = name
+    
+    # Handle Trello-specific actions
+    if detected_action == 'trello_done':
+        # Extract task name from text like "Set AI agent status to done"
+        task_keywords = ['ai agent', 'task', 'item']
+        for keyword in task_keywords:
+            if keyword in user_lower:
+                # Find the task name around the keyword
+                words = user_text.lower().split()
+                if keyword.replace(' ', '') in ' '.join(words):
+                    params['task_name'] = keyword
+                    break
+        if 'task_name' not in params:
+            params['task_name'] = 'ai agent'  # Default based on your example
+    
+    elif detected_action == 'add_business_tasks':
+        params['areas'] = ['sales', 'delivery', 'financial', 'operations', 'team']
     
     return {
         'action': detected_action,
@@ -1171,15 +1233,22 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
                                     ai_message = llm.invoke(prompt)
                                     ai_response = ai_message.content
                             else:
-                                # Standard OpsBrain response
-                                prompt = f"""You are OpsBrain, a strategic assistant for a solo dev founder building a $10K/month agency in under 30 hrs/week. 
+                                # Standard OpsBrain response - CEO style
+                                prompt = f"""You are OpsBrain, a CEO-level AI assistant. Respond like a strategic executive.
 
-Current task backlog:
-{task_list}
+Current tasks: {len(tasks)} pending
+User request: '{user_text}'{context_prompt}
 
-User request: '{user_text}'.{context_prompt}
+RESPONSE RULES:
+- Task completed: "Task completed" or "Done"
+- Issue found: "Issue: [specific problem]"
+- Questions: 1-2 sentence strategic answer
+- Requests: Confirm action or identify blocker
+- No bullet points or long explanations
+- Maximum 2 sentences unless complex strategy question
+- Focus on revenue/efficiency blockers only
 
-Provide 1-2 focused actions or strategic insights that help grow the business. Focus on revenue, efficiency, and CEO-level priorities. Use bullet points for clarity."""
+Respond:"""
                                 ai_message = llm.invoke(prompt)
                                 ai_response = ai_message.content
                             
@@ -1309,15 +1378,22 @@ Provide 1-2 focused actions or strategic insights that help grow the business. F
                             ai_message = llm.invoke(prompt)
                             response = ai_message.content
                     else:
-                        # Standard OpsBrain response
-                        prompt = f"""You are OpsBrain, a strategic assistant for a solo dev founder building a $10K/month agency in under 30 hrs/week. 
+                        # Standard OpsBrain response - CEO style
+                        prompt = f"""You are OpsBrain, a CEO-level AI assistant. Respond like a strategic executive.
 
-Current task backlog:
-{task_list}
+Current tasks: {len(tasks)} pending
+User request: '{user_text}'{context_prompt}
 
-User request: '{user_text}'.{context_prompt}
+RESPONSE RULES:
+- Task completed: "Task completed" or "Done"
+- Issue found: "Issue: [specific problem]"
+- Questions: 1-2 sentence strategic answer
+- Requests: Confirm action or identify blocker
+- No bullet points or long explanations
+- Maximum 2 sentences unless complex strategy question
+- Focus on revenue/efficiency blockers only
 
-Provide 1-2 focused actions or strategic insights that help grow the business. Focus on revenue, efficiency, and CEO-level priorities. Use bullet points for clarity."""
+Respond:"""
                         ai_message = llm.invoke(prompt)
                         response = ai_message.content
                     
