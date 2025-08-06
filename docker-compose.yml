@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  opsbrain:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Required environment variables - set these in your .env file or environment
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
+      - NOTION_API_KEY=${NOTION_API_KEY}
+      - NOTION_DB_ID=${NOTION_DB_ID}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # Optional database IDs for enhanced features
+      - NOTION_GOALS_DB_ID=${NOTION_GOALS_DB_ID:-}
+      - NOTION_CLIENTS_DB_ID=${NOTION_CLIENTS_DB_ID:-}
+      - NOTION_PROJECTS_DB_ID=${NOTION_PROJECTS_DB_ID:-}
+      - NOTION_METRICS_DB_ID=${NOTION_METRICS_DB_ID:-}
+      
+      # Production settings
+      - TEST_MODE=${TEST_MODE:-false}
+    
+    restart: unless-stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

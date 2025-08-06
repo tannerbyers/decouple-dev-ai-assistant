@@ -1,0 +1,53 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Set test environment variables
+      run: |
+        echo "TEST_MODE=true" >> $GITHUB_ENV
+        echo "SLACK_BOT_TOKEN=fake_slack_token" >> $GITHUB_ENV
+        echo "NOTION_API_KEY=fake_notion_key" >> $GITHUB_ENV
+        echo "NOTION_DB_ID=fake_db_id" >> $GITHUB_ENV
+        echo "OPENAI_API_KEY=fake_openai_key" >> $GITHUB_ENV
+    
+    - name: Test business goals loading
+      run: |
+        python -c "from main import business_goals; print(f'✅ Loaded {len(business_goals)} business goals successfully')"
+    
+    - name: Run performance tests
+      run: |
+        python test_performance.py
+    
+    - name: Run timeout protection tests
+      run: |
+        python test_timeout_protection.py
+    
+    - name: Run full test suite
+      run: |
+        pytest -v --tb=short
+    
+    - name: Test summary
+      if: success()
+      run: |
+        echo "🎉 All tests passed! Deployment ready."

@@ -11,9 +11,50 @@ os.environ['NOTION_DB_ID'] = 'fake_db_id'
 os.environ['OPENAI_API_KEY'] = 'fake_openai_key'
 os.environ['TEST_MODE'] = 'true'
 
-from main import app, fetch_open_tasks
+from main import app, fetch_open_tasks, analyze_business_request, handle_task_backlog_request, BusinessGoal, GoalStatus, Priority, BusinessArea, NotionDBInfo, generate_task_backlog, bulk_create_notion_tasks
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def business_goals_fixture():
+    return {
+        "sales_1": BusinessGoal(
+            id="sales_1",
+            title="Increase Sales",
+            description="Increase sales by 20%",
+            area=BusinessArea.SALES,
+            status=GoalStatus.IN_PROGRESS,
+            priority=Priority.HIGH,
+            target_date="2025-12-31",
+            progress=50,
+            weekly_actions=["Action 1"],
+            daily_actions=["Action 2"],
+            success_metrics={"metric": "value"},
+            created_date="2025-01-01",
+            last_updated="2025-08-01"
+        )
+    }
+
+def test_analyze_business_request_task_backlog():
+    user_text = "create all tasks for the first customer"
+    analysis = analyze_business_request(user_text)
+    assert analysis['request_type'] == 'task_backlog'
+
+def test_analyze_business_request_various_task_backlog_keywords():
+    """Test that various task backlog keywords are detected correctly"""
+    test_cases = [
+        "task backlog",
+        "generate tasks", 
+        "missing tasks",
+        "all the tasks",
+        "review all tasks",
+        "missing items"
+    ]
+    
+    for text in test_cases:
+        analysis = analyze_business_request(text)
+        assert analysis['request_type'] == 'task_backlog', f"Failed for text: '{text}'"
 
 # Test the Slack endpoint with proper mocking
 @patch('main.requests.post')
