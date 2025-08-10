@@ -18,6 +18,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY main.py .
 COPY business_goals.json* ./
+COPY src/ ./src/
+COPY migrate_to_production.py ./
+COPY business_brain.yaml* ./
+COPY task_matrix.yaml* ./
+COPY opsbrain.db* ./
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash opsbrain

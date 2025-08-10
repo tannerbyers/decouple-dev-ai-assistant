@@ -13,3 +13,4 @@ pytest-timeout
 httpx
 pytest-mock
 psutil
+psycopg2-binary
