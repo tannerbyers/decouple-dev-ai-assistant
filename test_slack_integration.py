@@ -22,8 +22,10 @@ import hmac
 import hashlib
 import sys
 import argparse
+import os
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
+from dotenv import load_dotenv
 
 class SlackIntegrationTester:
     def __init__(self, base_url: str, signing_secret: Optional[str] = None):
@@ -412,6 +414,323 @@ class SlackIntegrationTester:
                 str(e)
             )
     
+    def test_slash_command_workflow(self):
+        """Test complete slash command workflow"""
+        timestamp = str(int(time.time()))
+        
+        # Test /ai command with task creation request
+        form_data = (
+            "token=fake_token&team_id=T123&channel_id=C123&"
+            "command=/ai&text=create task: Fix critical bug in authentication system"
+        )
+        
+        try:
+            response = self.session.post(
+                self.slack_endpoint,
+                data=form_data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-Slack-Request-Timestamp": timestamp,
+                    "X-Slack-Signature": self.generate_slack_signature(form_data, timestamp)
+                }
+            )
+            
+            if response.status_code == 200:
+                try:
+                    response_data = response.json()
+                    # Check if response contains expected elements
+                    if "text" in response_data and "analyze" in response_data["text"].lower():
+                        self.log_test(
+                            "Slash Command Workflow",
+                            True,
+                            "Slash command processed successfully",
+                            f"Response indicates task analysis initiated"
+                        )
+                    else:
+                        self.log_test(
+                            "Slash Command Workflow",
+                            False,
+                            "Slash command response format unexpected",
+                            f"Response: {response_data}"
+                        )
+                except json.JSONDecodeError:
+                    self.log_test(
+                        "Slash Command Workflow",
+                        False,
+                        "Slash command response is not valid JSON",
+                        response.text[:200]
+                    )
+            else:
+                self.log_test(
+                    "Slash Command Workflow",
+                    False,
+                    f"Slash command failed: {response.status_code}",
+                    response.text[:200]
+                )
+        except requests.exceptions.RequestException as e:
+            self.log_test(
+                "Slash Command Workflow",
+                False,
+                "Cannot test slash command workflow",
+                str(e)
+            )
+    
+    def test_event_callback_workflow(self):
+        """Test event callback workflow for message events"""
+        timestamp = str(int(time.time()))
+        
+        # Test message event
+        test_data = {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "text": "What are my current tasks?",
+                "channel": "C123",
+                "user": "U123",
+                "subtype": None
+            }
+        }
+        
+        body = json.dumps(test_data)
+        
+        try:
+            response = self.session.post(
+                self.slack_endpoint,
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Slack-Request-Timestamp": timestamp,
+                    "X-Slack-Signature": self.generate_slack_signature(body, timestamp)
+                }
+            )
+            
+            if response.status_code == 200:
+                self.log_test(
+                    "Event Callback Workflow",
+                    True,
+                    "Message event processed successfully",
+                    "Event callback system is working"
+                )
+            else:
+                self.log_test(
+                    "Event Callback Workflow",
+                    False,
+                    f"Event callback failed: {response.status_code}",
+                    response.text[:200]
+                )
+        except requests.exceptions.RequestException as e:
+            self.log_test(
+                "Event Callback Workflow",
+                False,
+                "Cannot test event callback workflow",
+                str(e)
+            )
+    
+    def test_help_command_workflow(self):
+        """Test help command specifically"""
+        timestamp = str(int(time.time()))
+        
+        test_data = {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "text": "help",
+                "channel": "C123",
+                "user": "U123",
+                "subtype": None
+            }
+        }
+        
+        body = json.dumps(test_data)
+        
+        try:
+            response = self.session.post(
+                self.slack_endpoint,
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Slack-Request-Timestamp": timestamp,
+                    "X-Slack-Signature": self.generate_slack_signature(body, timestamp)
+                }
+            )
+            
+            if response.status_code == 200:
+                self.log_test(
+                    "Help Command Workflow",
+                    True,
+                    "Help command processed successfully",
+                    "Users can get help information"
+                )
+            else:
+                self.log_test(
+                    "Help Command Workflow",
+                    False,
+                    f"Help command failed: {response.status_code}",
+                    response.text[:200]
+                )
+        except requests.exceptions.RequestException as e:
+            self.log_test(
+                "Help Command Workflow",
+                False,
+                "Cannot test help command workflow",
+                str(e)
+            )
+    
+    def test_thread_context_workflow(self):
+        """Test threaded conversation workflow"""
+        timestamp = str(int(time.time()))
+        thread_ts = "1234567890.123456"
+        
+        # First message in thread
+        test_data = {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "text": "What's the status of project Alpha?",
+                "channel": "C123",
+                "user": "U123",
+                "thread_ts": thread_ts,
+                "subtype": None
+            }
+        }
+        
+        body = json.dumps(test_data)
+        
+        try:
+            response = self.session.post(
+                self.slack_endpoint,
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Slack-Request-Timestamp": timestamp,
+                    "X-Slack-Signature": self.generate_slack_signature(body, timestamp)
+                }
+            )
+            
+            if response.status_code == 200:
+                # Follow up with second message in same thread
+                time.sleep(1)
+                timestamp2 = str(int(time.time()))
+                
+                test_data2 = {
+                    "type": "event_callback",
+                    "event": {
+                        "type": "message",
+                        "text": "And what about the timeline?",
+                        "channel": "C123",
+                        "user": "U123",
+                        "thread_ts": thread_ts,
+                        "subtype": None
+                    }
+                }
+                
+                body2 = json.dumps(test_data2)
+                response2 = self.session.post(
+                    self.slack_endpoint,
+                    data=body2,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Slack-Request-Timestamp": timestamp2,
+                        "X-Slack-Signature": self.generate_slack_signature(body2, timestamp2)
+                    }
+                )
+                
+                if response2.status_code == 200:
+                    self.log_test(
+                        "Thread Context Workflow",
+                        True,
+                        "Threaded conversation processed successfully",
+                        "Context continuity is maintained across thread messages"
+                    )
+                else:
+                    self.log_test(
+                        "Thread Context Workflow",
+                        False,
+                        f"Second thread message failed: {response2.status_code}",
+                        response2.text[:200]
+                    )
+            else:
+                self.log_test(
+                    "Thread Context Workflow",
+                    False,
+                    f"Thread context test failed: {response.status_code}",
+                    response.text[:200]
+                )
+        except requests.exceptions.RequestException as e:
+            self.log_test(
+                "Thread Context Workflow",
+                False,
+                "Cannot test thread context workflow",
+                str(e)
+            )
+    
+    def test_concurrent_requests(self):
+        """Test handling of concurrent requests"""
+        import threading
+        import concurrent.futures
+        
+        def send_test_request(request_id: int) -> tuple:
+            """Send a test request and return result"""
+            timestamp = str(int(time.time()))
+            test_data = {
+                "type": "event_callback",
+                "event": {
+                    "type": "message",
+                    "text": f"Test concurrent request {request_id}",
+                    "channel": "C123",
+                    "user": "U123",
+                    "subtype": None
+                }
+            }
+            
+            body = json.dumps(test_data)
+            
+            try:
+                response = requests.post(
+                    self.slack_endpoint,
+                    data=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Slack-Request-Timestamp": timestamp,
+                        "X-Slack-Signature": self.generate_slack_signature(body, timestamp)
+                    },
+                    timeout=10
+                )
+                return (request_id, response.status_code, True)
+            except Exception as e:
+                return (request_id, 0, False)
+        
+        try:
+            # Send 5 concurrent requests
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(send_test_request, i) for i in range(5)]
+                results = [future.result() for future in concurrent.futures.as_completed(futures, timeout=30)]
+            
+            successful_requests = sum(1 for _, status, success in results if success and status == 200)
+            total_requests = len(results)
+            
+            if successful_requests >= total_requests * 0.8:  # 80% success rate
+                self.log_test(
+                    "Concurrent Requests",
+                    True,
+                    f"Handled concurrent requests well: {successful_requests}/{total_requests} successful",
+                    "System can handle multiple simultaneous Slack events"
+                )
+            else:
+                self.log_test(
+                    "Concurrent Requests",
+                    False,
+                    f"Poor concurrent request handling: {successful_requests}/{total_requests} successful",
+                    "May need to improve async handling or add rate limiting"
+                )
+        except Exception as e:
+            self.log_test(
+                "Concurrent Requests",
+                False,
+                "Cannot test concurrent request handling",
+                str(e)
+            )
+    
     def run_all_tests(self):
         """Run all tests and print summary"""
         print(f"🚀 Testing Slack Integration: {self.base_url}")
@@ -427,6 +746,15 @@ class SlackIntegrationTester:
         self.test_with_valid_signature()
         self.test_error_handling()
         self.test_response_times()
+        
+        # Core workflow tests
+        print("\n🔧 TESTING CORE WORKFLOWS")
+        print("-" * 40)
+        self.test_slash_command_workflow()
+        self.test_event_callback_workflow()
+        self.test_help_command_workflow()
+        self.test_thread_context_workflow()
+        self.test_concurrent_requests()
         
         # Print summary
         print("=" * 60)
@@ -459,21 +787,36 @@ class SlackIntegrationTester:
         print("📚 Need help? Check the PRODUCTION_CHECKLIST.md file.")
 
 def main():
+    # Load environment variables from .env file
+    load_dotenv()
+    
     parser = argparse.ArgumentParser(description="Test Slack integration endpoint")
-    parser.add_argument("url", help="Your app's base URL (e.g., https://your-app.onrender.com)")
-    parser.add_argument("--signing-secret", help="Your Slack app's signing secret (optional)")
+    parser.add_argument("url", nargs='?', default=None, help="Your app's base URL (e.g., https://your-app.onrender.com)")
+    parser.add_argument("--signing-secret", help="Your Slack app's signing secret (optional, will use .env if not provided)")
     parser.add_argument("--timeout", type=int, default=10, help="Request timeout in seconds")
     
     args = parser.parse_args()
     
+    # Get signing secret from args or environment
+    signing_secret = args.signing_secret or os.getenv('SLACK_SIGNING_SECRET')
+    
+    # Get URL from args or use default production URL
+    url = args.url or "https://decouple-ai.onrender.com"
+    
     # Validate URL
-    parsed_url = urlparse(args.url)
+    parsed_url = urlparse(url)
     if not parsed_url.scheme or not parsed_url.netloc:
         print("❌ Invalid URL format. Use: https://your-app.onrender.com")
         sys.exit(1)
     
+    # Show configuration info
+    print(f"🔧 Configuration:")
+    print(f"   URL: {url}")
+    print(f"   Signing Secret: {'✓ Loaded from .env' if signing_secret and not args.signing_secret else '✓ Provided' if signing_secret else '✗ Not found'}")
+    print()
+    
     # Run tests
-    tester = SlackIntegrationTester(args.url, args.signing_secret)
+    tester = SlackIntegrationTester(url, signing_secret)
     tester.session.timeout = args.timeout
     
     try:

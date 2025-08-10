@@ -20,14 +20,9 @@ from plotly.subplots import make_subplots
 # Import our existing modules
 from main import (
     fetch_open_tasks,
-    get_business_goals,
+    business_goals,
     create_notion_task,
-    update_business_goal,
-    log_business_metric
-)
-from ceo_operator import (
     load_business_brain,
-    generate_weekly_candidates,
     generate_ceo_weekly_plan,
     generate_midweek_nudge,
     generate_friday_retro
@@ -37,6 +32,68 @@ from ceo_scheduler import CEOScheduler
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+@dataclass
+class DashboardConfig:
+    """Configuration for dashboard settings"""
+    weekly_hours: int = 5
+    max_weekly_hours: int = 20
+    auto_weekly_plan: bool = True
+    auto_midweek_nudge: bool = True
+    auto_friday_retro: bool = True
+    slack_channel: Optional[str] = None
+    
+    def to_dict(self) -> Dict:
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'DashboardConfig':
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
+
+class ConfigManager:
+    """Manages dashboard configuration persistence"""
+    
+    def __init__(self, config_file: str = "dashboard_config.json"):
+        self.config_file = config_file
+        self.config = self.load_config()
+    
+    def load_config(self) -> DashboardConfig:
+        """Load configuration from file"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r') as f:
+                    data = json.load(f)
+                    return DashboardConfig.from_dict(data)
+            else:
+                # Create default config file
+                default_config = DashboardConfig()
+                self.save_config(default_config)
+                return default_config
+        except Exception as e:
+            logger.error(f"Error loading dashboard config: {e}")
+            return DashboardConfig()
+    
+    def save_config(self, config: DashboardConfig) -> bool:
+        """Save configuration to file"""
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(config.to_dict(), f, indent=2)
+            logger.info(f"Dashboard configuration saved to {self.config_file}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving dashboard config: {e}")
+            return False
+    
+    def update_config(self, **kwargs) -> bool:
+        """Update specific configuration values"""
+        try:
+            for key, value in kwargs.items():
+                if hasattr(self.config, key):
+                    setattr(self.config, key, value)
+            return self.save_config(self.config)
+        except Exception as e:
+            logger.error(f"Error updating dashboard config: {e}")
+            return False
 
 @dataclass
 class DashboardMetrics:
@@ -63,9 +120,19 @@ class CEOOperatorDashboard:
     
     def __init__(self):
         self.business_brain = load_business_brain()
-        self.weekly_hours = 2  # Default minimum hours
-        self.max_weekly_hours = 10
+        self.config_manager = ConfigManager()
+        self.weekly_hours = self.config_manager.config.weekly_hours
+        self.max_weekly_hours = self.config_manager.config.max_weekly_hours
         self.scheduler = CEOScheduler()
+        
+        # Sync scheduler config with dashboard config
+        self.scheduler.update_schedule_config(
+            weekly_hours_available=self.weekly_hours,
+            monday_plan=self.config_manager.config.auto_weekly_plan,
+            wednesday_nudge=self.config_manager.config.auto_midweek_nudge,
+            friday_retro=self.config_manager.config.auto_friday_retro,
+            slack_channel=self.config_manager.config.slack_channel
+        )
         
     def setup_page_config(self):
         """Configure Streamlit page"""
@@ -112,7 +179,7 @@ class CEOOperatorDashboard:
         try:
             # Fetch tasks and goals
             tasks = await fetch_open_tasks()
-            goals = get_business_goals()
+            goals = list(business_goals.values())
             
             # Process tasks data
             if isinstance(tasks, str):
@@ -471,15 +538,55 @@ class CEOOperatorDashboard:
                 help="How many hours per week do you have for high-priority tasks?"
             )
             
-            if new_weekly_hours != self.weekly_hours:
-                self.weekly_hours = new_weekly_hours
-                st.success(f"Weekly hours updated to {new_weekly_hours}h")
-            
             # Scheduling preferences
             st.subheader("Scheduling")
-            schedule_weekly_plan = st.checkbox("Auto-generate weekly plans", value=True)
-            schedule_midweek_nudge = st.checkbox("Send midweek check-ins", value=True)
-            schedule_friday_retro = st.checkbox("Generate Friday retrospectives", value=True)
+            schedule_weekly_plan = st.checkbox(
+                "Auto-generate weekly plans", 
+                value=self.config_manager.config.auto_weekly_plan
+            )
+            schedule_midweek_nudge = st.checkbox(
+                "Send midweek check-ins", 
+                value=self.config_manager.config.auto_midweek_nudge
+            )
+            schedule_friday_retro = st.checkbox(
+                "Generate Friday retrospectives", 
+                value=self.config_manager.config.auto_friday_retro
+            )
+            
+            # Slack channel configuration
+            slack_channel = st.text_input(
+                "Slack Channel (optional)",
+                value=self.config_manager.config.slack_channel or "",
+                help="Channel ID where automated updates will be posted"
+            )
+            
+            # Save configuration button
+            if st.button("💾 Save Configuration"):
+                success = self.config_manager.update_config(
+                    weekly_hours=new_weekly_hours,
+                    auto_weekly_plan=schedule_weekly_plan,
+                    auto_midweek_nudge=schedule_midweek_nudge,
+                    auto_friday_retro=schedule_friday_retro,
+                    slack_channel=slack_channel if slack_channel else None
+                )
+                
+                if success:
+                    self.weekly_hours = new_weekly_hours
+                    
+                    # Sync with scheduler
+                    self.scheduler.update_schedule_config(
+                        weekly_hours_available=new_weekly_hours,
+                        monday_plan=schedule_weekly_plan,
+                        wednesday_nudge=schedule_midweek_nudge,
+                        friday_retro=schedule_friday_retro,
+                        slack_channel=slack_channel if slack_channel else None
+                    )
+                    
+                    st.success("✅ Configuration saved successfully!")
+                    st.info(f"📊 Weekly hours: {new_weekly_hours}h")
+                    st.info(f"⏰ Automated updates: {'Enabled' if any([schedule_weekly_plan, schedule_midweek_nudge, schedule_friday_retro]) else 'Disabled'}")
+                else:
+                    st.error("❌ Failed to save configuration")
         
         with col2:
             st.subheader("Business Brain Status")

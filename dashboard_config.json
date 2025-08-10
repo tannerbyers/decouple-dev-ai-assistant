@@ -1,0 +1,8 @@
+{
+  "weekly_hours": 5,
+  "max_weekly_hours": 20,
+  "auto_weekly_plan": true,
+  "auto_midweek_nudge": true,
+  "auto_friday_retro": true,
+  "slack_channel": null
+}

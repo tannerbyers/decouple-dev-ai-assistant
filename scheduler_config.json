@@ -1,0 +1,8 @@
+{
+  "monday_plan": true,
+  "wednesday_nudge": true,
+  "friday_retro": true,
+  "weekly_hours_available": 5,
+  "auto_generate_tasks": false,
+  "slack_channel": null
+}
