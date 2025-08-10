@@ -1,6 +1,22 @@
 import os
+import pytest
+import signal
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
+
+class TimeoutError(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutError("Test timed out")
+
+@pytest.fixture(autouse=True)
+def setup_timeout():
+    """Setup timeout for all tests"""
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(30)  # 30 second timeout
+    yield
+    signal.alarm(0)  # Cancel alarm
 
 # Set environment variables before importing main
 os.environ['SLACK_BOT_TOKEN'] = 'fake_slack_token'

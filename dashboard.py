@@ -18,16 +18,86 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Import our existing modules
-from main import (
-    fetch_open_tasks,
-    business_goals,
-    create_notion_task,
-    load_business_brain,
-    generate_ceo_weekly_plan,
-    generate_midweek_nudge,
-    generate_friday_retro
-)
-from ceo_scheduler import CEOScheduler
+try:
+    from main import (
+        fetch_open_tasks,
+        business_goals,
+        create_notion_task,
+        load_business_brain,
+        generate_ceo_weekly_plan,
+        generate_midweek_nudge,
+        generate_friday_retro,
+        notion,
+        NOTION_DB_ID
+    )
+    
+    def fetch_full_task_objects():
+        """Fetch complete task objects with all properties from Notion"""
+        try:
+            results = notion.databases.query(
+                **{
+                    "database_id": NOTION_DB_ID,
+                    "filter": {
+                        "or": [
+                            {"property": "Status", "select": {"equals": "To Do"}},
+                            {"property": "Status", "select": {"equals": "Inbox"}}
+                        ]
+                    }
+                }
+            )
+            return results['results']
+        except Exception as e:
+            logger.error(f"Error fetching full task objects: {e}")
+            return []
+    
+except ImportError:
+    # Fallback functions for when running standalone
+    def fetch_open_tasks():
+        return []
+    
+    def fetch_full_task_objects():
+        return []
+    
+    business_goals = {}
+    
+    def create_notion_task(*args, **kwargs):
+        return {"success": False, "message": "Notion integration not available"}
+    
+    def load_business_brain():
+        return {"company_name": "Demo Company", "north_star_goal": "Demo Goal"}
+    
+    def generate_ceo_weekly_plan(*args, **kwargs):
+        return "Demo weekly plan"
+    
+    def generate_midweek_nudge(*args, **kwargs):
+        return "Demo midweek nudge"
+    
+    def generate_friday_retro(*args, **kwargs):
+        return "Demo Friday retro"
+
+try:
+    from ceo_scheduler import CEOScheduler
+except ImportError:
+    # Mock scheduler for when running standalone
+    class CEOScheduler:
+        def __init__(self):
+            pass
+        
+        def update_schedule_config(self, **kwargs):
+            pass
+        
+        def manual_trigger_update(self, update_type):
+            class MockUpdate:
+                def __init__(self):
+                    self.status = 'completed'
+                    self.content = f"Mock {update_type} content"
+            return MockUpdate()
+        
+        def get_recent_updates(self, limit):
+            return []
+        
+        def get_next_scheduled_updates(self):
+            return []
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -177,20 +247,27 @@ class CEOOperatorDashboard:
     async def fetch_dashboard_data(self) -> Dict[str, Any]:
         """Fetch all data needed for dashboard"""
         try:
-            # Fetch tasks and goals
-            tasks = await fetch_open_tasks()
+            # Fetch full task objects and goals
+            tasks_data = fetch_full_task_objects()
             goals = list(business_goals.values())
             
-            # Process tasks data
-            if isinstance(tasks, str):
-                tasks_data = json.loads(tasks) if tasks else []
-            else:
-                tasks_data = tasks or []
+            logger.info(f"Fetched {len(tasks_data)} tasks from Notion")
             
-            # Calculate metrics
+            # Calculate metrics with better error handling
             total_tasks = len(tasks_data)
-            high_priority_tasks = sum(1 for task in tasks_data 
-                                    if task.get('properties', {}).get('Priority', {}).get('select', {}).get('name') == 'High')
+            high_priority_tasks = 0
+            
+            for i, task in enumerate(tasks_data):
+                if task is None:
+                    logger.warning(f"Task {i} is None, skipping")
+                    continue
+                    
+                try:
+                    priority = task.get('properties', {}).get('Priority', {}).get('select', {})
+                    if priority and priority.get('name') == 'High':
+                        high_priority_tasks += 1
+                except Exception as e:
+                    logger.warning(f"Error processing priority for task {i}: {e}")
             
             # Estimate completed this week (mock data for now)
             completed_this_week = max(0, total_tasks // 4)  # Rough estimate
@@ -636,14 +713,19 @@ class CEOOperatorDashboard:
         # Quick stats in sidebar
         st.sidebar.subheader("Quick Stats")
         try:
-            # Get basic metrics
-            tasks_data = asyncio.run(fetch_open_tasks())
-            if isinstance(tasks_data, str):
-                tasks_data = json.loads(tasks_data) if tasks_data else []
+            # Use cached or simplified stats to avoid async calls in sidebar
+            if 'sidebar_stats' not in st.session_state:
+                st.session_state.sidebar_stats = {
+                    'total_tasks': 0,
+                    'last_updated': None
+                }
             
-            total_tasks = len(tasks_data) if tasks_data else 0
-            st.sidebar.metric("Active Tasks", total_tasks)
+            stats = st.session_state.sidebar_stats
+            st.sidebar.metric("Active Tasks", stats['total_tasks'])
             st.sidebar.metric("Weekly Hours", f"{self.weekly_hours}h")
+            
+            if stats['last_updated']:
+                st.sidebar.caption(f"Last updated: {stats['last_updated']}")
             
         except Exception as e:
             st.sidebar.error("Unable to fetch stats")
@@ -654,11 +736,17 @@ class CEOOperatorDashboard:
         """Main dashboard application"""
         self.setup_page_config()
         
+        # Fetch dashboard data first
+        data = await self.fetch_dashboard_data()
+        
+        # Update sidebar stats in session state
+        st.session_state.sidebar_stats = {
+            'total_tasks': data['metrics'].total_tasks,
+            'last_updated': datetime.now().strftime('%H:%M')
+        }
+        
         # Render sidebar and get current page
         current_page = self.render_sidebar()
-        
-        # Fetch dashboard data
-        data = await self.fetch_dashboard_data()
         
         # Render the appropriate page
         if current_page == "Dashboard":

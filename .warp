@@ -231,17 +231,18 @@ uvicorn main:app --reload
 ### Git Workflow & Commit Standards
 
 #### Commit Message Guidelines
-**ALWAYS use short, descriptive commit messages that follow this format:**
+**ALWAYS use extremely short commit messages (30 characters max):**
 
 ```bash
-# Good examples (50 characters or less)
-git commit -m "Fix null byte error in main.py"
-git commit -m "Add integration test structure"
-git commit -m "Update README with test documentation"
-git commit -m "Refactor thread context detection"
+# Good examples (30 characters or less)
+git commit -m "Fix null byte error"
+git commit -m "Add timeout tests"
+git commit -m "Update dashboard"
+git commit -m "Refactor context"
 
-# Bad examples (too long, will break)
-git commit -m "This is a very long commit message that describes everything we did in great detail and will definitely cause issues because it's way too long and contains line breaks and special characters"
+# Bad examples (too long)
+git commit -m "Fix null byte error in main.py file"
+git commit -m "Add integration test structure"
 ```
 
 #### Pre-Commit Checklist
@@ -264,11 +265,12 @@ git push
 ```
 
 #### Commit Message Format Rules
-1. **Maximum 50 characters** for commit message
-2. **Start with verb** (Add, Fix, Update, Remove, Refactor)
-3. **No special characters** that break shell parsing
-4. **No line breaks** in commit message
-5. **Be specific but concise**
+1. **Maximum 30 characters** for commit message
+2. **Start with verb** (Fix, Add, Update, Remove)
+3. **No emojis anywhere**
+4. **No special characters** that break shell parsing
+5. **No line breaks** in commit message
+6. **Be specific but extremely concise**
 
 #### Examples by Change Type
 ```bash
