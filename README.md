@@ -35,12 +35,21 @@ A strategic assistant Slack bot integrated with Notion and OpenAI for solo dev f
    pip install -r requirements.txt
    ```
 
-2. Set up environment variables:
+2. Set up consistent development environment (recommended):
+   ```bash
+   # Use PostgreSQL for both dev and production consistency
+   ./setup-dev-postgres.sh
+   ```
+   
+   Or see [DEVELOPMENT_SETUP.md](DEVELOPMENT_SETUP.md) for detailed options.
+
+3. Set up environment variables:
    - `OPENAI_API_KEY`
    - `NOTION_API_KEY`
    - `NOTION_DB_ID`
    - `SLACK_BOT_TOKEN`
    - `SLACK_SIGNING_SECRET`
+   - `DATABASE_URL` (for PostgreSQL consistency)
    - `PORT`
 
 ### Running the Application

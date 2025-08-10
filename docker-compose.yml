@@ -1,6 +1,42 @@
 version: '3.8'
 
 services:
+  # Local PostgreSQL database for development
+  postgres-dev:
+    image: postgres:15-alpine
+    container_name: opsbrain-postgres-dev
+    environment:
+      POSTGRES_DB: opsbrain_dev
+      POSTGRES_USER: opsbrain_user
+      POSTGRES_PASSWORD: dev_password_123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opsbrain_user -d opsbrain_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - dev
+      - full
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: opsbrain-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@opsbrain.dev
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres-dev
+    profiles:
+      - tools
+      - full
+
   opsbrain:
     build: .
     ports:
@@ -19,10 +55,18 @@ services:
       - NOTION_PROJECTS_DB_ID=${NOTION_PROJECTS_DB_ID:-}
       - NOTION_METRICS_DB_ID=${NOTION_METRICS_DB_ID:-}
       
+      # Database configuration - use PostgreSQL in all environments
+      - DATABASE_URL=${DATABASE_URL:-postgresql://opsbrain_user:dev_password_123@postgres-dev:5432/opsbrain_dev}
+      
       # Production settings
       - TEST_MODE=${TEST_MODE:-false}
-    
+    depends_on:
+      - postgres-dev
     restart: unless-stopped
+    profiles:
+      - dev
+      - full
+      - default
     
     # Health check
     healthcheck:
@@ -31,3 +75,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+volumes:
+  postgres_dev_data:
