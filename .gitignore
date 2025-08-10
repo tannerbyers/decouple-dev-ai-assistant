@@ -1,3 +1,12 @@
 venv/
 __pycache__/
 .env
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Migration and backup files
+migration_backups/
+backups/
