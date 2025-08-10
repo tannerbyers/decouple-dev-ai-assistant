@@ -4,11 +4,12 @@ from langchain_openai import ChatOpenAI
 from notion_client import Client as NotionClient
 from src.trello_client import trello_client
 import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 from notion_client.errors import APIResponseError
 from dataclasses import dataclass, asdict
 from enum import Enum
 import asyncio
+import yaml
 from concurrent.futures import ThreadPoolExecutor
 
 # Initialize FastAPI application
@@ -115,6 +116,71 @@ class BusinessGoal:
 # In-memory goal storage (in production, use database)
 business_goals: Dict[str, BusinessGoal] = {}
 
+# Thread context management for conversation continuity
+thread_contexts: Dict[str, Dict] = {}  # {"channel:thread_ts": {"messages": [...], "created_at": timestamp}}
+
+def get_thread_context(thread_ts: Optional[str], channel: str, user_text: str) -> Dict:
+    """Retrieve or create conversation context for a thread."""
+    # Clean up old threads first (cleanup threads older than 24 hours)
+    cleanup_old_threads()
+    
+    # Create thread key - use channel for non-threaded messages
+    thread_key = f"{channel}:{thread_ts}" if thread_ts else channel
+    
+    # Get existing context or create new one
+    if thread_key in thread_contexts:
+        context = thread_contexts[thread_key]
+        # Add new user message to existing context
+        context['messages'].append(f"User: {user_text}")
+        
+        # Keep only last 10 messages to prevent memory bloat
+        if len(context['messages']) > 10:
+            context['messages'] = context['messages'][-10:]
+            
+        logger.info(f"Retrieved existing thread context with {len(context['messages'])} messages")
+    else:
+        # Create new context
+        context = {
+            'messages': [f"User: {user_text}"],
+            'created_at': time.time()
+        }
+        thread_contexts[thread_key] = context
+        logger.info(f"Created new thread context for key: {thread_key}")
+    
+    return context
+
+def update_thread_context(thread_ts: Optional[str], channel: str, ai_response: str) -> None:
+    """Update thread context with AI response and manage message history."""
+    thread_key = f"{channel}:{thread_ts}" if thread_ts else channel
+    
+    if thread_key in thread_contexts:
+        context = thread_contexts[thread_key]
+        context['messages'].append(f"OpsBrain: {ai_response}")
+        
+        # Keep only last 10 messages to prevent memory bloat
+        if len(context['messages']) > 10:
+            context['messages'] = context['messages'][-10:]
+            
+        logger.info(f"Updated thread context with AI response. Total messages: {len(context['messages'])}")
+    else:
+        logger.warning(f"Attempted to update non-existent thread context: {thread_key}")
+
+def cleanup_old_threads() -> None:
+    """Remove thread conversations older than 24 hours to manage memory usage."""
+    current_time = time.time()
+    twenty_four_hours = 24 * 60 * 60  # 24 hours in seconds
+    
+    threads_to_remove = []
+    for thread_key, context in thread_contexts.items():
+        if current_time - context['created_at'] > twenty_four_hours:
+            threads_to_remove.append(thread_key)
+    
+    for thread_key in threads_to_remove:
+        del thread_contexts[thread_key]
+        
+    if threads_to_remove:
+        logger.info(f"Cleaned up {len(threads_to_remove)} old thread contexts")
+
 def load_business_goals_from_json(filename: str = "business_goals.json") -> None:
     """Load business goals from JSON file into memory."""
     try:
@@ -151,6 +217,276 @@ def load_business_goals_from_json(filename: str = "business_goals.json") -> None
 
 # Load business goals from JSON file at startup
 load_business_goals_from_json()
+
+# CEO Operator System Components
+business_brain: Dict[str, Any] = {}
+task_matrix: Dict[str, List[str]] = {}
+
+def load_business_brain() -> Dict[str, Any]:
+    """Load business brain configuration from YAML file."""
+    global business_brain
+    try:
+        if os.path.exists('business_brain.yaml'):
+            with open('business_brain.yaml', 'r') as f:
+                business_brain = yaml.safe_load(f)
+                logger.info(f"Loaded business brain configuration: {business_brain.get('company', {}).get('name', 'Unknown')}")
+        else:
+            logger.warning("Business brain YAML not found. Using default configuration.")
+            business_brain = {
+                'company': {'name': 'Decouple Dev', 'positioning': 'Async dev agency'},
+                'goals': {'north_star': 'Hit $30k/mo revenue'},
+                'policy': {'priority_order': ['RevenueNow', 'Retention', 'Systems', 'Brand']}
+            }
+    except Exception as e:
+        logger.error(f"Error loading business brain: {e}")
+        business_brain = {}
+    return business_brain
+
+def load_task_matrix() -> Dict[str, List[str]]:
+    """Load task matrix from YAML file."""
+    global task_matrix
+    try:
+        if os.path.exists('task_matrix.yaml'):
+            with open('task_matrix.yaml', 'r') as f:
+                task_matrix = yaml.safe_load(f)
+                total_tasks = sum(len(tasks) for tasks in task_matrix.values())
+                logger.info(f"Loaded task matrix with {total_tasks} total tasks across {len(task_matrix)} areas")
+        else:
+            logger.warning("Task matrix YAML not found. Using default task matrix.")
+            task_matrix = {
+                'marketing': ['Define ICP/pain bullets', 'Content creation'],
+                'sales': ['Outbound outreach', 'Discovery calls'],
+                'delivery': ['Process documentation', 'Quality assurance'],
+                'ops': ['Weekly reviews', 'System maintenance']
+            }
+    except Exception as e:
+        logger.error(f"Error loading task matrix: {e}")
+        task_matrix = {}
+    return task_matrix
+
+@dataclass
+class TaskCandidate:
+    """Represents a potential task for priority scoring."""
+    title: str
+    description: str
+    area: str
+    role: str  # CMO, CSO, COO, CTO
+    revenue_impact: int  # 0-5
+    time_to_impact: int  # 0-5 (days=5, weeks=3, months=1)
+    effort: int  # 0-5 (lower effort = higher score)
+    strategic_compounding: int  # 0-3
+    fit_to_constraints: int  # 0-2
+    due_date: str
+    owner: str
+    estimate: str  # S, M, L
+    acceptance_criteria: str
+    
+    @property
+    def priority_score(self) -> float:
+        """Calculate priority score using the Priority Engine formula."""
+        effort_inverse = 5 - self.effort if self.effort > 0 else 5
+        return (
+            (2 * self.revenue_impact) + 
+            (1.5 * self.time_to_impact) + 
+            (1 * effort_inverse) + 
+            (1 * self.strategic_compounding) + 
+            (1 * self.fit_to_constraints)
+        )
+
+def perform_gap_check() -> List[str]:
+    """Check what tasks are missing vs Task Matrix."""
+    current_tasks = fetch_open_tasks()
+    current_task_titles = [task.lower() for task in current_tasks if isinstance(task, str)]
+    
+    gaps = []
+    
+    for area, required_tasks in task_matrix.items():
+        for required_task in required_tasks:
+            # Simple keyword matching to see if required task exists
+            task_keywords = required_task.lower().split()[:3]  # First 3 words
+            if not any(all(keyword in current_title for keyword in task_keywords) 
+                      for current_title in current_task_titles):
+                gaps.append(f"[{area.title()}] {required_task}")
+    
+    return gaps
+
+def generate_weekly_candidates() -> List[TaskCandidate]:
+    """Generate candidate tasks based on Business Brain and Task Matrix."""
+    candidates = []
+    
+    # CMO Pass - Marketing tasks
+    marketing_tasks = task_matrix.get('marketing', [])
+    for task in marketing_tasks[:3]:  # Limit to top 3 to avoid flooding
+        candidates.append(TaskCandidate(
+            title=f"[Marketing] {task[:50]}...",
+            description=task,
+            area="Marketing",
+            role="CMO",
+            revenue_impact=4,  # Marketing usually high revenue impact
+            time_to_impact=4,  # Usually quick wins
+            effort=3,  # Moderate effort
+            strategic_compounding=2,  # Good for brand building
+            fit_to_constraints=2,  # Fits constraints
+            due_date=(datetime.datetime.now() + datetime.timedelta(days=7)).strftime('%Y-%m-%d'),
+            owner="Me",
+            estimate="M",
+            acceptance_criteria=f"Complete: {task}"
+        ))
+    
+    # CSO Pass - Sales tasks 
+    sales_tasks = task_matrix.get('sales', [])
+    for task in sales_tasks[:3]:
+        candidates.append(TaskCandidate(
+            title=f"[Sales] {task[:50]}...",
+            description=task,
+            area="Sales",
+            role="CSO",
+            revenue_impact=5,  # Sales = direct revenue
+            time_to_impact=5,  # Immediate impact
+            effort=2,  # Usually not too complex
+            strategic_compounding=1,  # Less compounding than systems
+            fit_to_constraints=2,
+            due_date=(datetime.datetime.now() + datetime.timedelta(days=5)).strftime('%Y-%m-%d'),
+            owner="Me",
+            estimate="S",
+            acceptance_criteria=f"Complete: {task}"
+        ))
+    
+    # COO Pass - Operations tasks
+    ops_tasks = task_matrix.get('ops', [])
+    for task in ops_tasks[:2]:
+        candidates.append(TaskCandidate(
+            title=f"[Ops] {task[:50]}...",
+            description=task,
+            area="Ops",
+            role="COO",
+            revenue_impact=2,  # Indirect revenue impact
+            time_to_impact=3,  # Medium-term
+            effort=4,  # Usually higher effort
+            strategic_compounding=3,  # High compounding for systems
+            fit_to_constraints=1,  # May not fit time constraints
+            due_date=(datetime.datetime.now() + datetime.timedelta(days=10)).strftime('%Y-%m-%d'),
+            owner="Me",
+            estimate="L",
+            acceptance_criteria=f"Complete: {task}"
+        ))
+    
+    return candidates
+
+def generate_ceo_weekly_plan(user_text: str = "") -> str:
+    """Generate CEO weekly plan following the Weekly Runbook."""
+    logger.info("Starting CEO Weekly Plan generation...")
+    
+    # 1) Pull: Business Brain + Task Matrix + current tasks
+    current_tasks = fetch_open_tasks()
+    
+    # 2) Gap Check
+    gaps = perform_gap_check()
+    
+    # 3) Generate candidates and score via Priority Engine
+    candidates = generate_weekly_candidates()
+    
+    # Sort by priority score (highest first)
+    candidates.sort(key=lambda x: x.priority_score, reverse=True)
+    
+    # 4) Select top 6-8 tasks for "This Week"
+    this_week_tasks = candidates[:6]  # Limit to 6 tasks
+    
+    # 5) Generate Slack summary
+    focus_theme = "Revenue pipeline + process foundations"
+    
+    if business_brain.get('goals', {}).get('north_star'):
+        focus_theme = f"Working toward: {business_brain['goals']['north_star']}"
+    
+    plan_response = f"""*Decouple Dev — Weekly Plan*
+• Focus: {focus_theme}
+• Top tasks (ranked by priority):
+"""
+    
+    for i, task in enumerate(this_week_tasks, 1):
+        plan_response += f"  {i}) {task.title} — due {task.due_date} — Owner: {task.owner} (Score: {task.priority_score:.1f})\n"
+    
+    if gaps:
+        plan_response += f"\n• Identified gaps: {len(gaps)} missing tasks from matrix\n"
+        plan_response += f"  Top gaps: {', '.join(gaps[:3])}\n"
+    
+    plan_response += "\n• CTA: Approve Trello changes? (Y/N). If N, reply with edits."
+    
+    return plan_response
+
+def generate_midweek_nudge() -> str:
+    """Generate Wednesday pipeline push message."""
+    current_tasks = fetch_open_tasks()
+    sales_tasks = [task for task in current_tasks if 'sales' in task.lower() or 'client' in task.lower() or 'proposal' in task.lower()]
+    
+    response = "*Pipeline Push*\n"
+    response += f"• Current sales tasks: {len(sales_tasks)} active\n"
+    response += "• Reminder: Record 1 proof asset today (before/after screenshot)\n"
+    response += "• CTA: Reply with any warm intros I should chase this week."
+    
+    return response
+
+def generate_friday_retro() -> str:
+    """Generate Friday retrospective message."""
+    current_tasks = fetch_open_tasks()
+    
+    response = "*Weekly Retro*\n"
+    response += f"• This week: Completed X tasks, {len(current_tasks)} still pending\n"
+    response += "• Metrics: discovery calls 0, proposals 0, content pieces 0\n"
+    response += "• Proof assets captured: [List any screenshots/metrics]\n"
+    response += "• Next Up (tentative): Focus on pipeline + content creation\n"
+    response += "• CTA: Approve 'Next Up' to schedule for Monday?"
+    
+    return response
+
+def create_trello_card_json(task: TaskCandidate) -> Dict[str, Any]:
+    """Create Trello card JSON payload for a task."""
+    labels = []
+    
+    # Add priority label
+    priority_label = business_brain.get('policy', {}).get('priority_order', ['RevenueNow'])[0]
+    labels.append(priority_label)
+    
+    # Add area label
+    labels.append(task.area)
+    
+    return {
+        "name": task.title,
+        "desc": f"""Goal: {task.description}
+Acceptance Criteria: {task.acceptance_criteria}
+Subtasks:
+- [Task breakdown here]
+Owner: {task.owner}
+Estimate: {task.estimate}
+Priority Score: {task.priority_score:.1f}
+Links:
+""",
+        "due": task.due_date,
+        "idList": "<ThisWeekListID>",  # Would be replaced with actual Trello list ID
+        "idMembers": ["<member_id_owner>"],
+        "labels": labels
+    }
+
+def get_discovery_call_script() -> str:
+    """Return the discovery call script for sales tasks."""
+    return """**Discovery Call Script**
+
+Opener: "I help small teams ship confidently by installing CI/CD + a minimal test harness. In 10 minutes I can show you how we cut deploy pain fast."
+
+Questions:
+1) What breaks your deploys today? (stories/examples)
+2) What's your rollback/alert flow?
+3) How long from commit → production?
+4) What's the smallest test suite you'd accept to sleep at night?
+5) If I could fix one thing this week, what should it be?
+
+Close:
+"We start with a fixed-price audit (1 week). If you like the plan, we book a 1–2 week sprint. Want me to send the two-option proposal today?"
+"""
+
+# Load configurations at startup
+load_business_brain()
+load_task_matrix()
 
 def get_app_version() -> str:
     """Get the current app version from git or fallback to timestamp."""
@@ -1151,8 +1487,8 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
             
             def send_delayed_response():
                 try:
-                    # Simple context for this request (no thread detection)
-                    context = {'messages': [f"User: {user_text}"], 'created_at': time.time()}
+                    # Get or create thread context for this conversation
+                    context = get_thread_context(None, channel, user_text)
                     
                     # First, post the original command to make it visible in the channel
                     if user_text.strip():  # Only post if there's actual text
@@ -1268,7 +1604,8 @@ Respond:"""
                             logger.error(f"OpenAI API error: {e}")
                             ai_response = "Sorry, I'm having trouble generating a response right now."
                     
-                    # No thread context to update since we're posting directly in channel
+                    # Update thread context with AI response
+                    update_thread_context(None, channel, ai_response)
                     
                     # Post response directly in the channel
                     try:
@@ -1316,8 +1653,8 @@ Respond:"""
             tasks = fetch_open_tasks()
             task_list = "\n".join(f"- {t}" for t in tasks)
             
-            # Simple context for event messages
-            context = {'messages': [f"User: {user_text}"], 'created_at': time.time()}
+            # Get or create thread context for this conversation
+            context = get_thread_context(thread_ts, channel, user_text)
 
             if not llm:
                 response = "Sorry, OpenAI API key is not configured."
@@ -1426,6 +1763,9 @@ Respond:"""
                 
                 if not slack_response.ok:
                     logger.error(f"Slack API error: {slack_response.status_code} - {slack_response.text}")
+                else:
+                    # Update thread context with AI response
+                    update_thread_context(thread_ts, channel, response)
             except requests.RequestException as e:
                 logger.error(f"Failed to send message to Slack: {e}")
             

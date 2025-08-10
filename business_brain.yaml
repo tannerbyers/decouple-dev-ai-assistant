@@ -1,0 +1,85 @@
+company:
+  name: Decouple Dev
+  positioning: "Async dev agency for startup teams using AWS; we install CI/CD + automated testing and deliver short, high-impact sprints."
+  primary_offers:
+    - name: "CI/CD + Test Audit"
+      type: flat_rate
+      price_anchor: "2500-5000"
+      deliverables:
+        - pipeline review (GitHub/GitLab)
+        - deploy visibility & alerts
+        - minimal test harness + smoke tests
+        - prioritized fix plan (1–2 week follow-up sprint)
+    - name: "1–2 Week Delivery Sprint"
+      type: fixed_scope
+      price_anchor: "6k-15k"
+      deliverables:
+        - backlog triage
+        - fail-fast branch strategy
+        - automated deploy + healthchecks
+
+goals:
+  north_star: "Hit $30k/mo revenue; owner quits remaining job"
+  milestones:
+    - name: "Validation"
+      target_date: "2025-09-30"
+      kpis: 
+        mrr: 6000
+        discovery_calls_per_week: 4
+        conversion_rate: "≥20%"
+    - name: "Replace Income"
+      target_date: "2025-12-31"
+      kpis:
+        mrr: 15000
+        active_clients: "4-6"
+        utilization: "≤30 hrs/wk"
+    - name: "Scale"
+      target_date: "2026-03-31"
+      kpis:
+        mrr: 30000
+        repeat_clients_rate: "≥40%"
+        contractor_hours_share: "≥50%"
+
+constraints:
+  owner_hours_per_week: 10
+  va_rate: 15
+  contractor_rate: 50
+  brand_channels: 
+    - TikTok
+    - Reddit
+    - Blog
+    - Website
+    - "Warm network"
+    - "Light Google Ads"
+  must_haves:
+    - "protect evenings/family time"
+    - "keep ops simple; no multi-agent sprawl yet"
+
+client_profile:
+  who: "Seed/Series A startups or small teams with AWS, missing robust CI/CD and tests"
+  pains: 
+    - "slow deploys"
+    - "no tests/visibility"
+    - "production fire drills"
+    - "regression risk"
+  buyer: "Founder/CTO/Lead dev"
+  proof_assets:
+    - "before/after pipeline screenshot"
+    - "deploy time reduction"
+    - "first failing test → fix"
+
+success_definitions:
+  lead: "booked discovery call"
+  qualified_lead: "has repo access + clear pain + budget window of $5–15k"
+  won: "signed + paid deposit"
+
+policy:
+  priority_order: 
+    - "RevenueNow"
+    - "Retention"
+    - "Systems"
+    - "Brand"
+  never_do_now:
+    - "large platform rebuilds"
+    - "big rebrands"
+    - "non-measurable projects"

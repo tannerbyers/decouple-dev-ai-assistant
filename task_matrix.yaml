@@ -1,0 +1,36 @@
+marketing:
+  - "Define ICP/pain bullets (living doc)"
+  - "TikTok: 3/wk value posts + 1 case-style post (CTA to book call)"
+  - "Reddit: 3 helpful comments/wk + 1 soft CTA post"
+  - "Blog: 2 technical posts/mo (CI/CD + testing; include code)"
+  - "Proof assets: capture before/after from each engagement"
+  - "Landing page: offer clarity + 2 case snapshots + Calendly"
+
+sales:
+  - "Weekly outbound list build (20 targets) by VA"
+  - "Warm outreach (5/wk): ex-coworkers, founders, dev leads"
+  - "Discovery call script + objection handling sheet"
+  - "Proposal template (audit + sprint) with 2 price options"
+  - "CRM hygiene: status, next step, date, owner"
+
+delivery:
+  - "Audit playbook checklist"
+  - "Sprint playbook (DOR/DOD, test minima, alerts)"
+  - "Post-sprint 'value recap' email + upsell next sprint"
+
+ops:
+  - "Trello hygiene: lists, owners, due dates, AC on every task"
+  - "Weekly review cadence + Slack report"
+  - "Contractor roster + trial task SOP"
+  - "Invoicing + collections checklist"
+
+systems_sops:
+  - "SOP: lead sourcing + enrichment (VA)"
+  - "SOP: TikTok clip workflow (idea → record → caption → post → cross-post)"
+  - "SOP: Case study capture (screenshots, metrics, 150-word summary)"
+  - "SOP: Proposal → payment → kickoff"
+
+brand_seo:
+  - "Pillar page: 'CI/CD for small teams'"
+  - "4 support articles (tests, alerts, deploy visibility, rollback)"
+  - "Lightweight Google Ads test (exact-match pain keywords)"
