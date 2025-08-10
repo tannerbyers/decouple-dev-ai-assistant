@@ -296,6 +296,50 @@ def test_event_subscription_with_delays():
                 # Event subscriptions can take longer, but should still be reasonable
                 assert elapsed < 10.0
 
+def test_slack_3_second_timeout_compliance():
+    """Test that slash commands respond within 3 seconds even with multiple slow operations."""
+    
+    def super_slow_operations():
+        """Simulate multiple slow operations that might occur together."""
+        time.sleep(6)  # Simulate very slow Notion + OpenAI combination
+        return ["Task 1", "Task 2"]
+    
+    def slow_user_lookup(*args, **kwargs):
+        """Simulate slow user name lookup from Slack API."""
+        time.sleep(2)
+        return "Test User"
+    
+    with patch('main.fetch_open_tasks', side_effect=super_slow_operations):
+        with patch('main.get_user_name', side_effect=slow_user_lookup):
+            with patch('main.llm') as mock_llm:
+                mock_llm.invoke.side_effect = lambda prompt: type('obj', (object,), {'content': 'Strategic response'})()
+                
+                start_time = time.time()
+                
+                # Test slash command with multiple slow operations
+                form_data = (
+                    "token=fake_token&team_id=T123&channel_id=C123&user_id=U123&"
+                    "command=/ai&text=strategic advice&response_url=https://hooks.slack.com/test"
+                )
+                
+                response = client.post(
+                    "/slack",
+                    data=form_data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"}
+                )
+                
+                elapsed = time.time() - start_time
+                print(f"Multiple slow operations test response time: {elapsed:.3f}s")
+                
+                # CRITICAL: Must respond within Slack's 3-second timeout regardless of slow operations
+                assert response.status_code == 200
+                assert elapsed < 3.0, f"Response took {elapsed:.3f}s, must be under 3.0s for Slack"
+                
+                # Should return immediate ephemeral acknowledgment
+                json_response = response.json()
+                assert "🤔 Let me analyze your tasks" in json_response["text"]
+                assert json_response["response_type"] == "ephemeral"
+
 if __name__ == "__main__":
     print("🛡️  Running timeout protection tests...")
     print()
@@ -308,10 +352,12 @@ if __name__ == "__main__":
     test_slack_api_slow_response()
     test_memory_usage_under_load()
     test_event_subscription_with_delays()
+    test_slack_3_second_timeout_compliance()
     
     print()
     print("✅ All timeout protection tests passed!")
     print("🎯 Key protections verified:")
+    print("- Slash commands respond within Slack's 3-second timeout")
     print("- Slow external API calls don't block immediate responses")
     print("- API timeouts are handled gracefully")  
     print("- Background threads are properly managed")

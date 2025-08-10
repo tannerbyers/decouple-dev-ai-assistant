@@ -21,67 +21,58 @@ class TestMessageVisibility:
     @patch('main.requests.post')
     @patch('main.fetch_open_tasks')
     @patch('main.llm')
-    def test_slash_command_shows_original_message_in_channel(self, mock_llm, mock_fetch_tasks, mock_requests_post):
+    @patch('main.get_user_name')
+    def test_slash_command_shows_original_message_in_channel(self, mock_get_user_name, mock_llm, mock_fetch_tasks, mock_requests_post):
         """Test that slash command shows the original user message in the channel."""
         # Mock dependencies
         mock_fetch_tasks.return_value = ["Task 1", "Task 2"]
         mock_llm.invoke.return_value = MagicMock(content="Here's your analysis")
-        mock_requests_post.return_value.ok = True
+        mock_get_user_name.return_value = "User U123"
         
-        # Mock the background thread execution
-        with patch('threading.Thread') as mock_thread:
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
-            
-            # Send slash command
-            response = client.post(
-                "/slack",
-                data="command=/ai&text=What should I work on today?&channel_id=C123&user_id=U123",
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
-            )
-            
-            # Verify immediate response
-            assert response.status_code == 200
-            assert response.json()["response_type"] == "ephemeral"
-            
-            # Verify background thread was started
-            mock_thread.assert_called_once()
-            mock_thread_instance.start.assert_called_once()
-            
-            # Execute the background thread function manually to test the logic
-            background_function = mock_thread.call_args[1]['target']
-            background_function()
-            
-            # Verify that requests.post was called
-            mock_requests_post.assert_called()
-            
-            # Check if the original message was posted to make it visible
-            # Currently this test will FAIL because we don't post the original command
-            calls = mock_requests_post.call_args_list
-            
-            # We should have TWO calls:
-            # 1. Post the original user command to make it visible
-            # 2. Post the AI response
-            assert len(calls) >= 1, "Should have at least one Slack API call"
-            
-            # We should have TWO calls now:
-            # 1. Post the original user command to make it visible
-            # 2. Post the AI response
-            assert len(calls) >= 2, f"Should have at least 2 Slack API calls, got {len(calls)}"
-            
-            # First call should post the original command
-            original_command_call = calls[0]
-            assert "*User U123* used `/ai`: What should I work on today?" in str(original_command_call)
-            
-            # Second call should post the AI response (using the mocked LLM response)
-            ai_response_call = calls[1]
-            assert "Here's your analysis" in str(ai_response_call)
-            # Should also contain version timestamp
-            assert "_OpsBrain v" in str(ai_response_call)
-            
-            # Verify both calls are to the correct channel
-            for call in calls:
-                assert "'channel': 'C123'" in str(call)
+        # Mock successful Slack API responses
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 200
+        mock_requests_post.return_value = mock_response
+        
+        # Send slash command
+        response = client.post(
+            "/slack",
+            data="command=/ai&text=What should I work on today?&channel_id=C123&user_id=U123",
+            headers={"Content-Type": "application/x-www-form-urlencoded"}
+        )
+        
+        # Verify immediate response (critical for Slack timeout protection)
+        assert response.status_code == 200
+        assert response.json()["response_type"] == "ephemeral"
+        assert "🤔 Let me analyze your tasks" in response.json()["text"]
+        
+        # Give background thread time to execute
+        import time
+        time.sleep(0.1)
+        
+        # Verify that requests.post was called for background processing
+        mock_requests_post.assert_called()
+        calls = mock_requests_post.call_args_list
+        
+        # Background processing should make 2 calls:
+        # 1. Post the original user command to make it visible  
+        # 2. Post the AI response
+        assert len(calls) >= 2, f"Should have at least 2 Slack API calls, got {len(calls)}"
+        
+        # First call should post the original command with user name
+        original_command_call = calls[0]
+        assert "*User U123* used `/ai`: What should I work on today?" in str(original_command_call)
+        
+        # Second call should post the AI response
+        ai_response_call = calls[1]
+        assert "Here's your analysis" in str(ai_response_call)
+        # Should also contain version timestamp
+        assert "_OpsBrain v" in str(ai_response_call)
+        
+        # Verify both calls are to the correct channel
+        for call in calls:
+            assert "'channel': 'C123'" in str(call)
     
     @patch('main.requests.post')
     @patch('main.fetch_open_tasks')

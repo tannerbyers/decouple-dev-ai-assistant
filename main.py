@@ -1140,6 +1140,12 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
             
             logger.info(f"Slash command: {command}, text: {user_text}, channel: {channel}")
             
+            # Return immediate acknowledgment FIRST - must be under 3 seconds for Slack
+            immediate_response = {
+                "text": "🤔 Let me analyze your tasks and get back to you...",
+                "response_type": "ephemeral"  # Only visible to user who ran command
+            }
+            
             # Start background task to send the actual response
             import threading
             
@@ -1292,11 +1298,8 @@ Respond:"""
             )
             thread.start()
             
-            # Return immediate acknowledgment (this will be ephemeral and disappear)
-            return {
-                "text": "🤔 Let me analyze your tasks and get back to you...",
-                "response_type": "ephemeral"  # Only visible to user who ran command
-            }
+            # Return immediate acknowledgment using the prepared response
+            return immediate_response
         elif "event" in body:
             logger.info("Processing event subscription")
             slack_msg = SlackMessage(**body)
