@@ -1,0 +1,106 @@
+{
+  "timestamp": 1754871098.44681,
+  "production_url": "https://decouple-ai.onrender.com/",
+  "endpoint_tests": {
+    "health": {
+      "status_code": 200,
+      "success": true,
+      "content_type": "application/json",
+      "content_length": 172,
+      "response_time": 0.397367,
+      "content_preview": "{\"status\":\"healthy\",\"timestamp\":1754871097,\"test_mode\":false,\"slack_bot_token_set\":true,\"slack_signing_secret_set\":true,\"notion_api_key_set\":true,\"openai_api_key_set\":true}"
+    },
+    "health_alt": {
+      "status_code": 200,
+      "success": true,
+      "content_type": "application/json",
+      "content_length": 172,
+      "response_time": 0.684483,
+      "content_preview": "{\"status\":\"healthy\",\"timestamp\":1754871097,\"test_mode\":false,\"slack_bot_token_set\":true,\"slack_signing_secret_set\":true,\"notion_api_key_set\":true,\"openai_api_key_set\":true}"
+    },
+    "dashboard": {
+      "status_code": 404,
+      "success": false,
+      "content_type": "application/json",
+      "content_length": 22,
+      "response_time": 0.194955,
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    "dashboard_health": {
+      "status_code": 404,
+      "success": false,
+      "content_type": "application/json",
+      "content_length": 22,
+      "response_time": 0.189374,
+      "error": "{\"detail\":\"Not Found\"}"
+    },
+    "dashboard_api_metrics": {
+      "status_code": 404,
+      "success": false,
+      "content_type": "application/json",
+      "content_length": 22,
+      "response_time": 0.191717,
+      "error": "{\"detail\":\"Not Found\"}"
+    }
+  },
+  "config_analysis": {
+    "files": {
+      "main.py": true,
+      "src/web_dashboard.py": true,
+      "src/config_manager.py": true,
+      "src/database.py": true,
+      "render.yaml": true,
+      "Dockerfile": true,
+      "requirements.txt": true
+    },
+    "render_yaml": {
+      "exists": true,
+      "has_dashboard_routes": false,
+      "start_command": true,
+      "build_command": true
+    },
+    "requirements": {
+      "has_fastapi": true,
+      "has_streamlit": true,
+      "has_jinja2": true,
+      "has_tailwind_note": false
+    }
+  },
+  "integration_analysis": {
+    "main_py": {
+      "imports_web_dashboard": true,
+      "imports_config_manager": true,
+      "calls_integration": true,
+      "has_dashboard_routes": false,
+      "fastapi_app_exists": true
+    },
+    "dashboard_files": {
+      "src/web_dashboard.py": {
+        "exists": true,
+        "has_routes": true,
+        "has_integration_func": true,
+        "size_kb": 25
+      },
+      "src/config_manager.py": {
+        "exists": true,
+        "has_routes": false,
+        "has_integration_func": false,
+        "size_kb": 16
+      },
+      "src/database.py": {
+        "exists": true,
+        "has_routes": false,
+        "has_integration_func": false,
+        "size_kb": 16
+      }
+    }
+  },
+  "identified_issues": [
+    "\ud83d\udd0d Dashboard returns 404 - routes may not be properly registered",
+    "\ud83d\udd0d Dashboard health endpoint not found - routes not registered"
+  ],
+  "suggested_fixes": [
+    "\u2705 Ensure integrate_dashboard_with_main_app(app) is called in main.py",
+    "\u2705 Check that dashboard_router is properly defined in web_dashboard.py"
+  ]
+}

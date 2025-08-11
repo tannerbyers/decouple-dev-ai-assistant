@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 from notion_client import Client as NotionClient
 from src.trello_client import trello_client
+from src.config_manager import config_manager
+from src.web_dashboard import integrate_dashboard_with_main_app
 import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess
 from typing import Optional, Dict, List, Tuple, Any
 from notion_client.errors import APIResponseError
@@ -1779,3 +1781,10 @@ Respond:"""
         return {"ok": True}
 
     return {"ok": True}
+
+# Integrate dashboard with the FastAPI app
+try:
+    integrate_dashboard_with_main_app(app)
+    logger.info("Dashboard successfully integrated with main application")
+except Exception as e:
+    logger.error(f"Failed to integrate dashboard: {e}")
