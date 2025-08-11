@@ -91,6 +91,64 @@ async def get_task_summary() -> List[TaskSummary]:
     ]
     return mock_tasks
 
+async def get_comprehensive_analytics() -> Dict[str, Any]:
+    """Get comprehensive analytics data for dashboard."""
+    try:
+        # Get task data
+        tasks = await get_task_summary()
+        
+        # Calculate analytics
+        total_tasks = len(tasks)
+        high_priority_count = len([t for t in tasks if t.priority == "High"])
+        medium_priority_count = len([t for t in tasks if t.priority == "Medium"]) 
+        low_priority_count = len([t for t in tasks if t.priority == "Low"])
+        
+        in_progress_count = len([t for t in tasks if t.status == "In Progress"])
+        todo_count = len([t for t in tasks if t.status == "To Do"])
+        done_count = len([t for t in tasks if t.status == "Done"])
+        
+        # Area breakdown
+        areas = {}
+        for task in tasks:
+            if task.area not in areas:
+                areas[task.area] = {"count": 0, "high_priority": 0}
+            areas[task.area]["count"] += 1
+            if task.priority == "High":
+                areas[task.area]["high_priority"] += 1
+        
+        # Impact analysis
+        high_impact_count = len([t for t in tasks if t.impact == "High"])
+        medium_impact_count = len([t for t in tasks if t.impact == "Medium"])
+        low_impact_count = len([t for t in tasks if t.impact == "Low"])
+        
+        return {
+            "success": True,
+            "overview": {
+                "total_tasks": total_tasks,
+                "completion_rate": (done_count / max(total_tasks, 1)) * 100
+            },
+            "priority_breakdown": {
+                "high": high_priority_count,
+                "medium": medium_priority_count,
+                "low": low_priority_count
+            },
+            "status_breakdown": {
+                "todo": todo_count,
+                "in_progress": in_progress_count,
+                "done": done_count
+            },
+            "impact_analysis": {
+                "high": high_impact_count,
+                "medium": medium_impact_count,
+                "low": low_impact_count
+            },
+            "area_breakdown": areas,
+            "generated_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error generating analytics: {e}")
+        return {"success": False, "error": str(e)}
+
 # HTML Templates (embedded for now, can be moved to separate files)
 DASHBOARD_HTML = """
 <!DOCTYPE html>
@@ -124,6 +182,9 @@ DASHBOARD_HTML = """
                         <button onclick="refreshDashboard()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
                             Refresh
                         </button>
+                        <a href="/dashboard/docs" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
+                            Docs
+                        </a>
                         <a href="/dashboard/settings" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
                             Settings
                         </a>
@@ -313,20 +374,192 @@ DASHBOARD_HTML = """
         }
 
         async function generateWeeklyPlan() {
-            alert('Generating weekly plan... (Feature will be connected to backend)');
+            try {
+                showLoading('Generating weekly plan...');
+                const response = await fetch('/dashboard/api/generate/weekly-plan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await response.json();
+                hideLoading();
+                
+                if (data.success) {
+                    showModal('📋 Weekly Plan Generated', data.plan);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Error generating weekly plan:', error);
+                alert('Error generating weekly plan. Please try again.');
+            }
         }
 
         async function generateMidweekNudge() {
-            alert('Generating midweek nudge... (Feature will be connected to backend)');
+            try {
+                showLoading('Generating midweek check-in...');
+                const response = await fetch('/dashboard/api/generate/midweek-nudge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await response.json();
+                hideLoading();
+                
+                if (data.success) {
+                    showModal('💡 Midweek Check-in', data.nudge);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Error generating midweek nudge:', error);
+                alert('Error generating midweek nudge. Please try again.');
+            }
         }
 
         async function generateFridayRetro() {
-            alert('Generating Friday retrospective... (Feature will be connected to backend)');
+            try {
+                showLoading('Generating Friday retrospective...');
+                const response = await fetch('/dashboard/api/generate/friday-retro', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await response.json();
+                hideLoading();
+                
+                if (data.success) {
+                    showModal('🎉 Friday Retrospective', data.retrospective);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Error generating Friday retro:', error);
+                alert('Error generating Friday retrospective. Please try again.');
+            }
         }
 
-        function showTaskAnalytics() {
-            // Placeholder for analytics view
-            alert('Task analytics view coming soon!');
+        async function showTaskAnalytics() {
+            try {
+                showLoading('Loading analytics...');
+                const response = await fetch('/dashboard/api/analytics');
+                const data = await response.json();
+                hideLoading();
+                
+                if (data.success) {
+                    displayAnalytics(data);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Error loading analytics:', error);
+                alert('Error loading analytics. Please try again.');
+            }
+        }
+        
+        function displayAnalytics(analytics) {
+            const modalContent = `
+                <div class="space-y-6">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="text-center p-4 bg-blue-50 rounded-lg">
+                            <p class="text-2xl font-bold text-blue-600">${analytics.overview.total_tasks}</p>
+                            <p class="text-sm text-gray-600">Total Tasks</p>
+                        </div>
+                        <div class="text-center p-4 bg-green-50 rounded-lg">
+                            <p class="text-2xl font-bold text-green-600">${analytics.overview.completion_rate.toFixed(1)}%</p>
+                            <p class="text-sm text-gray-600">Completion Rate</p>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h4 class="font-semibold mb-2">Priority Breakdown</h4>
+                        <div class="space-y-2">
+                            <div class="flex justify-between">
+                                <span>High Priority:</span>
+                                <span class="font-semibold text-red-600">${analytics.priority_breakdown.high}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Medium Priority:</span>
+                                <span class="font-semibold text-yellow-600">${analytics.priority_breakdown.medium}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Low Priority:</span>
+                                <span class="font-semibold text-green-600">${analytics.priority_breakdown.low}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h4 class="font-semibold mb-2">Area Breakdown</h4>
+                        <div class="space-y-1">
+                            ${Object.entries(analytics.area_breakdown).map(([area, data]) => `
+                                <div class="flex justify-between text-sm">
+                                    <span>${area}:</span>
+                                    <span>${data.count} tasks (${data.high_priority} high priority)</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            showModal('📊 Task Analytics', modalContent);
+        }
+        
+        function showLoading(message) {
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = 'loading-overlay';
+            loadingDiv.innerHTML = `
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-white rounded-lg p-6 max-w-sm mx-auto">
+                        <div class="text-center">
+                            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                            <p class="text-gray-700">${message}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(loadingDiv);
+        }
+        
+        function hideLoading() {
+            const loadingDiv = document.getElementById('loading-overlay');
+            if (loadingDiv) {
+                loadingDiv.remove();
+            }
+        }
+        
+        function showModal(title, content) {
+            const modalDiv = document.createElement('div');
+            modalDiv.id = 'modal-overlay';
+            modalDiv.innerHTML = `
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onclick="closeModal()">
+                    <div class="bg-white rounded-lg max-w-4xl w-full max-h-[80vh] overflow-auto" onclick="event.stopPropagation()">
+                        <div class="p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-xl font-bold text-gray-900">${title}</h3>
+                                <button onclick="closeModal()" class="text-gray-500 hover:text-gray-700">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="prose max-w-none">
+                                ${content}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modalDiv);
+        }
+        
+        function closeModal() {
+            const modalDiv = document.getElementById('modal-overlay');
+            if (modalDiv) {
+                modalDiv.remove();
+            }
         }
 
         // Load initial data
@@ -357,17 +590,85 @@ async def dashboard_home(request: Request):
         logger.error(f"Error rendering dashboard: {e}")
         raise HTTPException(status_code=500, detail="Dashboard error")
 
+@dashboard_router.post("/api/generate/weekly-plan")
+async def generate_weekly_plan():
+    """Generate CEO weekly plan."""
+    try:
+        # Import CEO operator functions from main
+        import main
+        generate_ceo_weekly_plan = main.generate_ceo_weekly_plan
+        load_business_brain = main.load_business_brain
+        
+        business_brain = load_business_brain()
+        if not business_brain:
+            return {"error": "Business brain configuration not loaded"}
+        
+        weekly_plan = generate_ceo_weekly_plan()
+        return {
+            "success": True,
+            "plan": weekly_plan,
+            "generated_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error generating weekly plan: {e}")
+        return {"success": False, "error": str(e)}
+
+@dashboard_router.post("/api/generate/midweek-nudge")
+async def generate_midweek_nudge():
+    """Generate midweek check-in nudge."""
+    try:
+        import main
+        generate_midweek_nudge = main.generate_midweek_nudge
+        
+        nudge = generate_midweek_nudge()
+        return {
+            "success": True,
+            "nudge": nudge,
+            "generated_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error generating midweek nudge: {e}")
+        return {"success": False, "error": str(e)}
+
+@dashboard_router.post("/api/generate/friday-retro")
+async def generate_friday_retro():
+    """Generate Friday retrospective."""
+    try:
+        import main
+        generate_friday_retro = main.generate_friday_retro
+        
+        retro = generate_friday_retro()
+        return {
+            "success": True,
+            "retrospective": retro,
+            "generated_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error generating Friday retro: {e}")
+        return {"success": False, "error": str(e)}
+
+@dashboard_router.get("/api/analytics")
+async def get_task_analytics():
+    """Get task analytics and insights."""
+    try:
+        # Get task analytics data
+        analytics = await get_comprehensive_analytics()
+        return analytics
+    except Exception as e:
+        logger.error(f"Error getting analytics: {e}")
+        return {"success": False, "error": str(e)}
+
 @dashboard_router.get("/api/metrics")
 async def get_metrics():
     """Get dashboard metrics as JSON."""
     metrics = await get_dashboard_metrics()
-    return metrics.dict()
+    return metrics.model_dump()
 
 @dashboard_router.get("/api/tasks")
 async def get_tasks():
     """Get tasks summary as JSON."""
     tasks = await get_task_summary()
-    return [task.dict() for task in tasks]
+    return [task.model_dump() for task in tasks]
 
 @dashboard_router.get("/api/goals")
 async def get_goals():
@@ -532,11 +833,438 @@ async def import_config(request: Request):
     """Import configuration from JSON."""
     try:
         data = await request.json()
+        
+        # Validate that data is a dictionary
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Import data must be a dictionary")
+        
         imported_count = config_manager.import_configs(data, overwrite=True)
         return {"success": True, "imported_count": imported_count}
+    except ValueError as e:
+        # Handle JSON parsing errors
+        logger.error(f"Invalid JSON format: {e}")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error importing config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@dashboard_router.get("/docs", response_class=HTMLResponse)
+async def dashboard_docs(request: Request):
+    """Comprehensive documentation page."""
+    docs_html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>OpsBrain AI Assistant - Documentation</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-gray-100">
+        <div class="min-h-screen">
+            <!-- Header -->
+            <header class="bg-white shadow-sm border-b border-gray-200">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="flex justify-between items-center py-4">
+                        <div class="flex items-center">
+                            <h1 class="text-2xl font-bold text-gray-900">📚 OpsBrain Documentation</h1>
+                        </div>
+                        <div class="flex items-center space-x-4">
+                            <a href="/dashboard" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                                Dashboard
+                            </a>
+                            <a href="/dashboard/settings" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
+                                Settings
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content -->
+            <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <!-- Navigation -->
+                <div class="flex flex-wrap gap-4 mb-8">
+                    <button onclick="scrollToSection('getting-started')" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                        Getting Started
+                    </button>
+                    <button onclick="scrollToSection('dashboard')" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
+                        Dashboard
+                    </button>
+                    <button onclick="scrollToSection('slack-integration')" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg">
+                        Slack Integration
+                    </button>
+                    <button onclick="scrollToSection('configuration')" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg">
+                        Configuration
+                    </button>
+                    <button onclick="scrollToSection('api-reference')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg">
+                        API Reference
+                    </button>
+                </div>
+
+                <!-- Getting Started -->
+                <section id="getting-started" class="mb-12">
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h2 class="text-3xl font-bold text-gray-900 mb-6">🚀 Getting Started</h2>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">What is OpsBrain?</h3>
+                                <p class="text-gray-600 mb-4">OpsBrain is your AI-powered CEO operator assistant that helps streamline business operations, manage tasks, track goals, and provide strategic insights. It integrates with Slack, Notion, and other tools to provide a comprehensive business management solution.</p>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">🎯 Key Features</h3>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div class="border border-gray-200 rounded-lg p-4">
+                                        <h4 class="font-semibold text-blue-600 mb-2">📊 CEO Dashboard</h4>
+                                        <p class="text-sm text-gray-600">Real-time metrics, task management, and business goal tracking in one central location.</p>
+                                    </div>
+                                    <div class="border border-gray-200 rounded-lg p-4">
+                                        <h4 class="font-semibold text-green-600 mb-2">🤖 AI Assistant</h4>
+                                        <p class="text-sm text-gray-600">Intelligent responses, strategic advice, and automated task generation via Slack integration.</p>
+                                    </div>
+                                    <div class="border border-gray-200 rounded-lg p-4">
+                                        <h4 class="font-semibold text-purple-600 mb-2">📋 Task Management</h4>
+                                        <p class="text-sm text-gray-600">Notion integration for seamless task creation, tracking, and completion workflows.</p>
+                                    </div>
+                                    <div class="border border-gray-200 rounded-lg p-4">
+                                        <h4 class="font-semibold text-red-600 mb-2">⚙️ Configuration</h4>
+                                        <p class="text-sm text-gray-600">Database-backed configuration system with categories, validation, and import/export capabilities.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">🏁 Quick Setup</h3>
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <ol class="list-decimal list-inside space-y-2 text-gray-700">
+                                        <li><strong>Access the Dashboard:</strong> Navigate to <code class="bg-gray-200 px-1 rounded">/dashboard</code> to view your CEO operator dashboard</li>
+                                        <li><strong>Configure Settings:</strong> Go to <code class="bg-gray-200 px-1 rounded">/dashboard/settings</code> to set up your API keys and preferences</li>
+                                        <li><strong>Set Up Slack:</strong> Add your Slack Bot Token and Signing Secret in the Slack configuration category</li>
+                                        <li><strong>Configure Notion:</strong> Add your Notion API Key and Database ID for task management</li>
+                                        <li><strong>Start Using:</strong> Begin interacting with your AI assistant via Slack commands like <code class="bg-gray-200 px-1 rounded">/ai help</code></li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Dashboard Section -->
+                <section id="dashboard" class="mb-12">
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h2 class="text-3xl font-bold text-gray-900 mb-6">📊 Dashboard Guide</h2>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">Dashboard Overview</h3>
+                                <p class="text-gray-600 mb-4">The CEO Operator Dashboard provides a comprehensive view of your business operations with real-time metrics and quick action buttons.</p>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">📈 Metrics Cards</h3>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div class="border-l-4 border-blue-500 pl-4 py-2">
+                                        <h4 class="font-semibold text-blue-600">Total Active Tasks</h4>
+                                        <p class="text-sm text-gray-600">Shows the total number of active tasks across all business areas with weekly completion count.</p>
+                                    </div>
+                                    <div class="border-l-4 border-red-500 pl-4 py-2">
+                                        <h4 class="font-semibold text-red-600">High Priority Tasks</h4>
+                                        <p class="text-sm text-gray-600">Critical tasks requiring immediate attention with calculated tasks per hour capacity.</p>
+                                    </div>
+                                    <div class="border-l-4 border-yellow-500 pl-4 py-2">
+                                        <h4 class="font-semibold text-yellow-600">Weekly Hours</h4>
+                                        <p class="text-sm text-gray-600">Configured available hours per week for high-priority task execution.</p>
+                                    </div>
+                                    <div class="border-l-4 border-green-500 pl-4 py-2">
+                                        <h4 class="font-semibold text-green-600">Revenue Pipeline</h4>
+                                        <p class="text-sm text-gray-600">Calculated revenue potential based on active sales goals and progress.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">⚡ Quick Actions</h3>
+                                <div class="space-y-3">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                                        <div>
+                                            <h4 class="font-semibold">Generate Weekly Plan</h4>
+                                            <p class="text-sm text-gray-600">Creates a strategic weekly plan based on your business goals and current priorities</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                                        <div>
+                                            <h4 class="font-semibold">Midweek Check-in</h4>
+                                            <p class="text-sm text-gray-600">Generates a midweek progress review with actionable recommendations</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                                        <div>
+                                            <h4 class="font-semibold">Friday Retrospective</h4>
+                                            <p class="text-sm text-gray-600">Creates a comprehensive weekly retrospective with insights and next steps</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-3 h-3 bg-purple-500 rounded-full"></div>
+                                        <div>
+                                            <h4 class="font-semibold">View Analytics</h4>
+                                            <p class="text-sm text-gray-600">Displays detailed task analytics with priority, status, and area breakdowns</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Slack Integration -->
+                <section id="slack-integration" class="mb-12">
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h2 class="text-3xl font-bold text-gray-900 mb-6">💬 Slack Integration</h2>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">Available Commands</h3>
+                                <div class="bg-gray-50 rounded-lg p-4">
+                                    <div class="space-y-3">
+                                        <div>
+                                            <code class="bg-gray-200 px-2 py-1 rounded">/ai help</code>
+                                            <span class="ml-2 text-gray-600">- Show available commands and features</span>
+                                        </div>
+                                        <div>
+                                            <code class="bg-gray-200 px-2 py-1 rounded">/ai dashboard</code>
+                                            <span class="ml-2 text-gray-600">- Get dashboard summary and metrics</span>
+                                        </div>
+                                        <div>
+                                            <code class="bg-gray-200 px-2 py-1 rounded">/ai [your question]</code>
+                                            <span class="ml-2 text-gray-600">- Ask any business or strategic question</span>
+                                        </div>
+                                        <div>
+                                            <code class="bg-gray-200 px-2 py-1 rounded">/ai create task: [task description]</code>
+                                            <span class="ml-2 text-gray-600">- Create a new task in Notion</span>
+                                        </div>
+                                        <div>
+                                            <code class="bg-gray-200 px-2 py-1 rounded">/ai create goal: [goal description]</code>
+                                            <span class="ml-2 text-gray-600">- Create a new business goal</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">🎯 CEO Functions</h3>
+                                <div class="space-y-3">
+                                    <div>
+                                        <h4 class="font-semibold text-blue-600">Weekly Planning</h4>
+                                        <p class="text-sm text-gray-600">Automatically generates strategic weekly plans based on your business goals and current task priorities.</p>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-semibold text-yellow-600">Progress Tracking</h4>
+                                        <p class="text-sm text-gray-600">Provides midweek check-ins and Friday retrospectives to keep you on track with your objectives.</p>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-semibold text-green-600">Strategic Insights</h4>
+                                        <p class="text-sm text-gray-600">Offers AI-powered insights and recommendations based on your business data and goals.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">⚙️ Setup Instructions</h3>
+                                <div class="bg-blue-50 rounded-lg p-4">
+                                    <ol class="list-decimal list-inside space-y-2 text-gray-700">
+                                        <li>Create a Slack App in your workspace</li>
+                                        <li>Configure OAuth & Permissions with required scopes</li>
+                                        <li>Add your Bot User OAuth Token to the configuration</li>
+                                        <li>Set up Event Subscriptions pointing to your deployment URL</li>
+                                        <li>Configure Slash Commands with your app's webhook URL</li>
+                                        <li>Install the app to your workspace</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Configuration -->
+                <section id="configuration" class="mb-12">
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h2 class="text-3xl font-bold text-gray-900 mb-6">⚙️ Configuration</h2>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">Configuration Categories</h3>
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    <div class="border-l-4 border-blue-500 pl-4">
+                                        <h4 class="font-semibold text-blue-600">General</h4>
+                                        <p class="text-sm text-gray-600">Basic application settings and preferences</p>
+                                    </div>
+                                    <div class="border-l-4 border-green-500 pl-4">
+                                        <h4 class="font-semibold text-green-600">API</h4>
+                                        <p class="text-sm text-gray-600">API keys and external service configurations</p>
+                                    </div>
+                                    <div class="border-l-4 border-purple-500 pl-4">
+                                        <h4 class="font-semibold text-purple-600">Slack</h4>
+                                        <p class="text-sm text-gray-600">Slack integration settings and tokens</p>
+                                    </div>
+                                    <div class="border-l-4 border-indigo-500 pl-4">
+                                        <h4 class="font-semibold text-indigo-600">Notion</h4>
+                                        <p class="text-sm text-gray-600">Notion API configuration and database IDs</p>
+                                    </div>
+                                    <div class="border-l-4 border-red-500 pl-4">
+                                        <h4 class="font-semibold text-red-600">OpenAI</h4>
+                                        <p class="text-sm text-gray-600">AI model settings and API configurations</p>
+                                    </div>
+                                    <div class="border-l-4 border-yellow-500 pl-4">
+                                        <h4 class="font-semibold text-yellow-600">Dashboard</h4>
+                                        <p class="text-sm text-gray-600">Dashboard display preferences and metrics</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">🔧 Configuration Features</h3>
+                                <div class="space-y-3">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                                        <span>Validation: Automatic validation of configuration values</span>
+                                    </div>
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                                        <span>Caching: In-memory caching for improved performance</span>
+                                    </div>
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-3 h-3 bg-purple-500 rounded-full"></div>
+                                        <span>Import/Export: JSON-based configuration backup and restore</span>
+                                    </div>
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+                                        <span>Categories: Organized configuration management</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- API Reference -->
+                <section id="api-reference" class="mb-12">
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h2 class="text-3xl font-bold text-gray-900 mb-6">🔌 API Reference</h2>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">Dashboard Endpoints</h3>
+                                <div class="space-y-4">
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-green-500 text-white px-2 py-1 rounded text-xs">GET</span>
+                                            <code class="font-mono">/dashboard/api/metrics</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Returns dashboard metrics including task counts, revenue pipeline, and weekly hours.</p>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-green-500 text-white px-2 py-1 rounded text-xs">GET</span>
+                                            <code class="font-mono">/dashboard/api/tasks</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Returns task summary with priority, status, area, and impact information.</p>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-green-500 text-white px-2 py-1 rounded text-xs">GET</span>
+                                            <code class="font-mono">/dashboard/api/goals</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Returns business goals from the database with progress tracking.</p>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-green-500 text-white px-2 py-1 rounded text-xs">GET</span>
+                                            <code class="font-mono">/dashboard/api/analytics</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Returns comprehensive task analytics with priority, status, and area breakdowns.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">Generation Endpoints</h3>
+                                <div class="space-y-4">
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-blue-500 text-white px-2 py-1 rounded text-xs">POST</span>
+                                            <code class="font-mono">/dashboard/api/generate/weekly-plan</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Generates a CEO weekly plan based on business brain configuration and current priorities.</p>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-blue-500 text-white px-2 py-1 rounded text-xs">POST</span>
+                                            <code class="font-mono">/dashboard/api/generate/midweek-nudge</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Creates a midweek check-in with progress review and recommendations.</p>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-blue-500 text-white px-2 py-1 rounded text-xs">POST</span>
+                                            <code class="font-mono">/dashboard/api/generate/friday-retro</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Generates a comprehensive Friday retrospective with weekly insights.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800 mb-3">Configuration Endpoints</h3>
+                                <div class="space-y-4">
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-green-500 text-white px-2 py-1 rounded text-xs">GET</span>
+                                            <code class="font-mono">/dashboard/api/config/export</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Exports all or category-specific configurations as JSON.</p>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-blue-500 text-white px-2 py-1 rounded text-xs">POST</span>
+                                            <code class="font-mono">/dashboard/api/config/import</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Imports configuration from JSON with validation and overwrite options.</p>
+                                    </div>
+                                    <div class="bg-gray-50 rounded-lg p-4">
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="bg-blue-500 text-white px-2 py-1 rounded text-xs">POST</span>
+                                            <code class="font-mono">/dashboard/api/config/update</code>
+                                        </div>
+                                        <p class="text-sm text-gray-600">Updates individual configuration values with validation.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <script>
+            function scrollToSection(sectionId) {
+                document.getElementById(sectionId).scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=docs_html)
 
 # Health check for dashboard
 @dashboard_router.get("/health")
