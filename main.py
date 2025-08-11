@@ -1406,7 +1406,11 @@ def verify_slack_signature(body: bytes, timestamp: str, signature: str) -> bool:
         return False
 
 @app.post("/slack")
-async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = Header(None), x_slack_signature: Optional[str] = Header(None)):
+async def slack_events(req: Request):
+    # Get Slack signature headers
+    x_slack_request_timestamp = req.headers.get("x-slack-request-timestamp")
+    x_slack_signature = req.headers.get("x-slack-signature")
+    
     # Log incoming request headers (only in TEST_MODE to reduce noise)
     if TEST_MODE:
         logger.info(f"Incoming Slack request - Headers: {dict(req.headers)}")
@@ -1456,6 +1460,9 @@ async def slack_events(req: Request, x_slack_request_timestamp: Optional[str] = 
 
     # Log signature verification details
     logger.info(f"About to verify signature - TEST_MODE: {TEST_MODE}")
+    logger.info(f"Headers found: {list(req.headers.keys())}")
+    logger.info(f"Timestamp: {x_slack_request_timestamp}")
+    logger.info(f"Signature: {x_slack_signature}")
     if not TEST_MODE:
         signature_valid = verify_slack_signature(raw_body, x_slack_request_timestamp, x_slack_signature)
         logger.info(f"Signature verification result: {signature_valid}")
