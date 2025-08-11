@@ -596,6 +596,109 @@ def get_ceo_dashboard() -> Dict:
         'area_progress': area_progress,
         'high_priority_actions': sorted(high_priority_actions, key=lambda x: x['priority'], reverse=True)[:10]
     }
+async def analyze_and_remove_irrelevant_tasks(user_text: str, channel: str) -> str:
+    """Analyze all tasks and remove those that don't make sense for the current business state."""
+    logger.info("Starting task analysis and cleanup...")
+    
+    # Get all tasks with details
+    all_tasks = get_all_tasks_with_details()
+    if not all_tasks:
+        return "No tasks found to analyze."
+    
+    # Get business context
+    dashboard = get_ceo_dashboard()
+    goal_summary = "\n".join([f"- {g.title}: {g.description}" for g in business_goals.values()])
+    
+    # Create prompt for AI to analyze tasks
+    task_summaries = []
+    for task in all_tasks:
+        task_summaries.append(f"ID: {task['id'][:8]}... | Title: {task['title']} | Status: {task['status']} | Priority: {task['priority']} | Project: {task['project']} | Notes: {task['notes'][:50]}...")
+    
+    prompt = f"""You are OpsBrain, a CEO-level AI assistant. Analyze these tasks and identify which ones should be REMOVED because they:
+1. Don't align with current business goals
+2. Are outdated or no longer relevant
+3. Are duplicates or redundant
+4. Are low-value busy work that won't move the revenue needle
+5. Are poorly defined or unclear
+
+Current Business Context:
+{goal_summary}
+
+Business Focus: Revenue generation, client delivery, and operational efficiency
+
+TASKS TO ANALYZE:
+{chr(10).join(task_summaries[:50])}  # Limit to first 50 tasks
+
+RETURN ONLY THE TASK IDs (the 8-character prefix) OF TASKS TO REMOVE, one per line. No explanations, just the IDs.
+If no tasks should be removed, return "NONE".
+
+Example response:
+12345678
+87654321
+NONE
+"""
+    
+    try:
+        if not llm:
+            return "OpenAI API key not configured. Cannot analyze tasks."
+            
+        # Initial message to user
+        initial_message = f"🔍 Analyzing {len(all_tasks)} tasks to identify irrelevant items..."
+        requests.post("https://slack.com/api/chat.postMessage", headers={
+            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+            "Content-type": "application/json"
+        }, json={
+            "channel": channel,
+            "text": initial_message
+        })
+        
+        # Get AI analysis
+        ai_message = llm.invoke(prompt)
+        analysis_result = ai_message.content.strip()
+        
+        if analysis_result == "NONE" or not analysis_result:
+            return "✅ All tasks appear relevant to your current business state. No tasks were removed."
+        
+        # Parse task IDs to remove
+        task_ids_to_remove = []
+        lines = analysis_result.split('\n')
+        for line in lines:
+            line = line.strip()
+            if line and line != "NONE":
+                # Find matching task by ID prefix
+                for task in all_tasks:
+                    if task['id'].startswith(line):
+                        task_ids_to_remove.append(task)
+                        break
+        
+        if not task_ids_to_remove:
+            return "✅ No tasks were identified for removal. All tasks appear relevant."
+        
+        # Remove the identified tasks
+        removed_count = 0
+        removed_titles = []
+        
+        for task in task_ids_to_remove:
+            if delete_notion_task(task['id']):
+                removed_count += 1
+                removed_titles.append(task['title'][:50] + ("..." if len(task['title']) > 50 else ""))
+        
+        # Report results
+        if removed_count > 0:
+            result_message = f"✅ Removed {removed_count} irrelevant tasks:\n"
+            for i, title in enumerate(removed_titles[:10], 1):  # Limit display to 10
+                result_message += f"{i}. {title}\n"
+            if len(removed_titles) > 10:
+                result_message += f"... and {len(removed_titles) - 10} more\n"
+            result_message += f"\n💡 Focused on revenue-generating and operationally critical tasks."
+            return result_message
+        else:
+            return "❌ Failed to remove any tasks. There may have been an issue with the deletion process."
+            
+    except Exception as e:
+        logger.error(f"Error in task analysis: {e}")
+        return f"❌ Error analyzing tasks: {str(e)}"
+
 def analyze_business_request(user_text: str) -> Dict:
     """Analyze user request and determine business context and recommendations."""
     user_lower = user_text.lower()
@@ -624,7 +727,8 @@ def analyze_business_request(user_text: str) -> Dict:
     
     # Detect request type - more specific patterns first
     request_types = {
-        'task_backlog': ['create all tasks', 'task backlog', 'generate tasks', 'missing tasks', 'all the tasks', 'first customer', 'review all tasks', 'missing items'],
+        'task_cleanup': ['review all tasks', 'remove tasks', 'clean up tasks', 'delete tasks', 'cleanup tasks', 'remove irrelevant', 'doesnt make sense', "doesn't make sense", 'remove anything'],
+        'task_backlog': ['create all tasks', 'task backlog', 'generate tasks', 'missing tasks', 'all the tasks', 'first customer', 'missing items'],
         'goal_creation': ['goal', 'create', 'add', 'new objective', 'target'],
         'progress_update': ['progress', 'update', 'status', 'completed', 'done'],
         'dashboard': ['dashboard', 'overview', 'summary'],
@@ -995,6 +1099,71 @@ def update_notion_task(task_id: str, status: str = None, priority: str = None,
     except Exception as e:
         logger.error(f"Failed to update Notion task: {e}")
         return False
+
+def delete_notion_task(task_id: str) -> bool:
+    """Delete (archive) a task in Notion."""
+    try:
+        notion.pages.update(page_id=task_id, archived=True)
+        logger.info(f"Archived/deleted task {task_id} in Notion")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete Notion task: {e}")
+        return False
+
+def get_all_tasks_with_details() -> List[Dict[str, Any]]:
+    """Fetch all tasks from Notion with complete details for analysis."""
+    try:
+        response = notion.databases.query(database_id=NOTION_DB_ID)
+        tasks = []
+        
+        for page in response['results']:
+            try:
+                # Extract task details
+                props = page['properties']
+                task_title = ""
+                if 'Task' in props and props['Task']['title']:
+                    task_title = props['Task']['title'][0]['text']['content']
+                
+                status = ""
+                if 'Status' in props and props['Status']['select']:
+                    status = props['Status']['select']['name']
+                
+                priority = ""
+                if 'Priority' in props and props['Priority']['select']:
+                    priority = props['Priority']['select']['name']
+                
+                project = ""
+                if 'Project' in props and props['Project']['rich_text']:
+                    project = props['Project']['rich_text'][0]['text']['content']
+                
+                notes = ""
+                if 'Notes' in props and props['Notes']['rich_text']:
+                    notes = props['Notes']['rich_text'][0]['text']['content']
+                
+                due_date = ""
+                if 'Due Date' in props and props['Due Date']['date']:
+                    due_date = props['Due Date']['date']['start']
+                
+                tasks.append({
+                    'id': page['id'],
+                    'title': task_title,
+                    'status': status,
+                    'priority': priority,
+                    'project': project,
+                    'notes': notes,
+                    'due_date': due_date,
+                    'created_time': page['created_time'],
+                    'last_edited_time': page['last_edited_time']
+                })
+            except Exception as e:
+                logger.error(f"Error parsing task details: {e}")
+                continue
+        
+        logger.info(f"Retrieved {len(tasks)} detailed tasks from Notion")
+        return tasks
+    except Exception as e:
+        logger.error(f"Error fetching detailed tasks: {e}")
+        return []
 
 def create_business_goal_in_notion(title: str, area: str, target_date: str, 
                                   description: str = None, success_metrics: str = None) -> bool:
@@ -1561,6 +1730,44 @@ async def slack_events(req: Request):
                             if analysis['request_type'] == 'help':
                                 # Direct help response - no LLM needed
                                 ai_response = generate_help_response()
+                            elif analysis['request_type'] == 'task_cleanup':
+                                # Trigger async task cleanup
+                                ai_response = "🧹 I'll analyze all your tasks and remove anything that doesn't align with your current business state. This process will run in the background, and I'll update you with results."
+                                # Start the async task cleanup process safely
+                                try:
+                                    import asyncio
+                                    # Check if there's already an event loop running
+                                    try:
+                                        loop = asyncio.get_event_loop()
+                                        if loop.is_running():
+                                            # Create task in existing loop
+                                            async def run_cleanup():
+                                                result = await analyze_and_remove_irrelevant_tasks(user_text, channel)
+                                                # Send final result to Slack
+                                                requests.post("https://slack.com/api/chat.postMessage", headers={
+                                                    "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+                                                    "Content-type": "application/json"
+                                                }, json={
+                                                    "channel": channel,
+                                                    "text": add_version_timestamp(result)
+                                                })
+                                            asyncio.create_task(run_cleanup())
+                                        else:
+                                            # Run in existing loop
+                                            result = loop.run_until_complete(analyze_and_remove_irrelevant_tasks(user_text, channel))
+                                            ai_response = result
+                                    except RuntimeError:
+                                        # No loop exists, create new one
+                                        loop = asyncio.new_event_loop()
+                                        asyncio.set_event_loop(loop)
+                                        try:
+                                            result = loop.run_until_complete(analyze_and_remove_irrelevant_tasks(user_text, channel))
+                                            ai_response = result
+                                        finally:
+                                            loop.close()
+                                except Exception as e:
+                                    logger.error(f"Error in task cleanup: {e}")
+                                    ai_response += f"\n\n⚠️ There was an issue starting the task cleanup: {str(e)}"
                             elif analysis['request_type'] == 'task_backlog':
                                 # Trigger async task backlog generation
                                 ai_response = "🤖 I understand you want me to generate a task backlog. Let me analyze your business goals and create comprehensive tasks for you. This process will run in the background, and I'll update you with progress."
@@ -1704,6 +1911,47 @@ Respond:"""
                     if analysis['request_type'] == 'help':
                         # Direct help response - no LLM needed
                         response = generate_help_response()
+                    elif analysis['request_type'] == 'task_cleanup':
+                        # Trigger async task cleanup for events
+                        response = "🧹 I'll analyze all your tasks and remove anything that doesn't align with your current business state. This process will run in the background, and I'll update you with results."
+                        # Start the async task cleanup process safely
+                        try:
+                            import asyncio
+                            # Check if there's already an event loop running
+                            try:
+                                loop = asyncio.get_event_loop()
+                                if loop.is_running():
+                                    # Create task in existing loop
+                                    async def run_cleanup():
+                                        result = await analyze_and_remove_irrelevant_tasks(user_text, channel)
+                                        # Send final result to Slack (for threaded responses)
+                                        message_data = {
+                                            "channel": channel,
+                                            "text": add_version_timestamp(result)
+                                        }
+                                        if thread_ts:
+                                            message_data["thread_ts"] = thread_ts
+                                        requests.post("https://slack.com/api/chat.postMessage", headers={
+                                            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+                                            "Content-type": "application/json"
+                                        }, json=message_data)
+                                    asyncio.create_task(run_cleanup())
+                                else:
+                                    # Run in existing loop
+                                    result = loop.run_until_complete(analyze_and_remove_irrelevant_tasks(user_text, channel))
+                                    response = result
+                            except RuntimeError:
+                                # No loop exists, create new one
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                try:
+                                    result = loop.run_until_complete(analyze_and_remove_irrelevant_tasks(user_text, channel))
+                                    response = result
+                                finally:
+                                    loop.close()
+                        except Exception as e:
+                            logger.error(f"Error in task cleanup: {e}")
+                            response += f"\n\n⚠️ There was an issue starting the task cleanup: {str(e)}"
                     elif analysis['request_type'] == 'task_backlog':
                         # Trigger async task backlog generation for events
                         response = "🤖 I understand you want me to generate a task backlog. Let me analyze your business goals and create comprehensive tasks for you. This process will run in the background, and I'll update you with progress."

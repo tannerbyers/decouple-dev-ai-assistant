@@ -61,19 +61,32 @@ def test_analyze_business_request_task_backlog():
     assert analysis['request_type'] == 'task_backlog'
 
 def test_analyze_business_request_various_task_backlog_keywords():
-    """Test that various task backlog keywords are detected correctly"""
-    test_cases = [
+    """Test that task backlog keywords are detected correctly"""
+    task_backlog_cases = [
         "task backlog",
         "generate tasks", 
         "missing tasks",
         "all the tasks",
-        "review all tasks",
         "missing items"
     ]
     
-    for text in test_cases:
+    for text in task_backlog_cases:
         analysis = analyze_business_request(text)
         assert analysis['request_type'] == 'task_backlog', f"Failed for text: '{text}'"
+
+def test_analyze_business_request_task_cleanup_keywords():
+    """Test that task cleanup keywords are detected correctly"""
+    task_cleanup_cases = [
+        "review all tasks",
+        "clean up tasks",
+        "remove irrelevant tasks",
+        "doesn't make sense",
+        "remove tasks that don't make sense"
+    ]
+    
+    for text in task_cleanup_cases:
+        analysis = analyze_business_request(text)
+        assert analysis['request_type'] == 'task_cleanup', f"Failed for text: '{text}'"
 
 # Test the Slack endpoint with proper mocking
 @patch('main.requests.post')
