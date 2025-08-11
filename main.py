@@ -1386,20 +1386,36 @@ async def health_check_alt():
 def verify_slack_signature(body: bytes, timestamp: str, signature: str) -> bool:
     # Handle None values (e.g., in tests)
     if not timestamp or not signature or not SLACK_SIGNING_SECRET:
+        logger.error(f"Missing signature verification parameters: timestamp={bool(timestamp)}, signature={bool(signature)}, secret={bool(SLACK_SIGNING_SECRET)}")
         return False
     
     try:
+        # TEMPORARY DEBUG LOGGING FOR PRODUCTION
+        logger.info(f"SIGNATURE DEBUG - Body length: {len(body)}, Body preview: {body[:100]}...")
+        logger.info(f"SIGNATURE DEBUG - Timestamp: {timestamp}, Current time: {int(time.time())}")
+        logger.info(f"SIGNATURE DEBUG - Received signature: {signature[:20]}...")
+        
         # Check timestamp (prevent replay attacks)
-        if abs(time.time() - int(timestamp)) > 60 * 5:  # 5 minutes
+        time_diff = abs(time.time() - int(timestamp))
+        logger.info(f"SIGNATURE DEBUG - Time diff: {time_diff} seconds")
+        if time_diff > 60 * 5:  # 5 minutes
+            logger.error(f"Request timestamp too old: {time_diff} seconds")
             return False
         
         # Verify signature
         sig_basestring = f"v0:{timestamp}:{body.decode('utf-8')}"
+        logger.info(f"SIGNATURE DEBUG - Signature basestring length: {len(sig_basestring)}")
+        logger.info(f"SIGNATURE DEBUG - Signature basestring preview: {sig_basestring[:100]}...")
+        
         my_signature = 'v0=' + hmac.new(
             SLACK_SIGNING_SECRET.encode(),
             sig_basestring.encode(),
             hashlib.sha256
         ).hexdigest()
+        
+        logger.info(f"SIGNATURE DEBUG - Expected signature: {my_signature[:20]}...")
+        logger.info(f"SIGNATURE DEBUG - Signatures match: {hmac.compare_digest(my_signature, signature)}")
+        
         return hmac.compare_digest(my_signature, signature)
     except (ValueError, TypeError) as e:
         logger.error(f"Signature verification error: {e}")
