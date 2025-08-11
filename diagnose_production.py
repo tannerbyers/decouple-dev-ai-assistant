@@ -228,10 +228,10 @@ def main():
     print("🔍 OpsBrain Production Deployment Diagnosis")
     print("=" * 50)
     
-    # Get production URL
-    production_url = input("Enter your production URL (e.g., https://decouple-dev-ai-assistant.onrender.com): ").strip()
-    if not production_url:
-        production_url = "https://decouple-dev-ai-assistant.onrender.com"
+    # Get production URL from environment variable or use default
+    production_url = os.getenv('PRODUCTION_URL', 'https://decouple-ai.onrender.com')
+    
+    print(f"Using production URL: {production_url}")
     
     print(f"\n📊 Testing endpoints on: {production_url}")
     print("-" * 50)
