@@ -2451,30 +2451,14 @@ async def slack_events(req: Request):
                         # Check if the user's request includes adding tasks to Notion
                         # This special case needs to happen AFTER we have the AI response to extract tasks from
                         user_lower = user_text.lower()
-                        phrases_to_check = ["add to notion", "add these tasks to notion", "add tasks to notion", "tasks to notion", "add to my notion", "create in notion"]
-                        logger.info(f"DEBUG: Checking user text '{user_text}' for notion phrases")
-                        logger.info(f"DEBUG: User text lowercase: '{user_lower}'")
-                        logger.info(f"DEBUG: Phrases to check: {phrases_to_check}")
-                        
-                        phrase_found = False
-                        for phrase in phrases_to_check:
-                            if phrase in user_lower:
-                                phrase_found = True
-                                logger.info(f"DEBUG: Found matching phrase: '{phrase}'")
-                                break
-                        
-                        if phrase_found:
-                            logger.info(f"DEBUG: Triggering add_tasks_to_notion action with AI response length: {len(ai_response)}")
+                        if any(phrase in user_lower for phrase in ["add to notion", "add these tasks to notion", "add tasks to notion", "tasks to notion", "add to my notion", "create in notion"]):
                             # Extract and add tasks to Notion from the AI's response
                             notion_result = execute_database_action("add_tasks_to_notion", ai_response=ai_response)
-                            logger.info(f"DEBUG: Notion result: {notion_result}")
                             if notion_result["success"]:
                                 ai_response += f"\n\n✅ {notion_result['message']}"
                             else:
                                 ai_response += f"\n\n❌ {notion_result['message']}"
                             logger.info(f"Added tasks to Notion: {notion_result['success']}")
-                        else:
-                            logger.info(f"DEBUG: No matching notion phrases found in user text")
                         
                         # Update thread context with AI response
                         update_thread_context(None, channel, ai_response)
