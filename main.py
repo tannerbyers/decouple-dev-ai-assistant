@@ -1403,15 +1403,40 @@ def create_notion_task(title: str, status: str = "To Do", priority: str = "Mediu
         if "Priority" in available_props and priority:
             properties["Priority"] = {"select": {"name": priority}}
             
-        # Project - try different property names
+        # Project/Area - handle both rich_text and select types
         if project:
+            project_mapped = False
+            # Try Project first
             if "Project" in available_props:
-                properties["Project"] = {"rich_text": [{"text": {"content": project}}]}
-            elif "Category" in available_props:
-                properties["Category"] = {"rich_text": [{"text": {"content": project}}]}
-            elif "Area" in available_props:
-                properties["Area"] = {"rich_text": [{"text": {"content": project}}]}
-            else:
+                project_prop_type = db_info['properties']['Project']['type']
+                if project_prop_type == 'rich_text':
+                    properties["Project"] = {"rich_text": [{"text": {"content": project}}]}
+                    project_mapped = True
+                elif project_prop_type == 'select':
+                    properties["Project"] = {"select": {"name": project}}
+                    project_mapped = True
+            
+            # Try Category if Project didn't work
+            if not project_mapped and "Category" in available_props:
+                category_prop_type = db_info['properties']['Category']['type']
+                if category_prop_type == 'rich_text':
+                    properties["Category"] = {"rich_text": [{"text": {"content": project}}]}
+                    project_mapped = True
+                elif category_prop_type == 'select':
+                    properties["Category"] = {"select": {"name": project}}
+                    project_mapped = True
+            
+            # Try Area if others didn't work
+            if not project_mapped and "Area" in available_props:
+                area_prop_type = db_info['properties']['Area']['type']
+                if area_prop_type == 'rich_text':
+                    properties["Area"] = {"rich_text": [{"text": {"content": project}}]}
+                    project_mapped = True
+                elif area_prop_type == 'select':
+                    properties["Area"] = {"select": {"name": project}}
+                    project_mapped = True
+            
+            if not project_mapped:
                 # Skip project if no suitable property found
                 logger.warning(f"No suitable property found for project '{project}', skipping")
         
