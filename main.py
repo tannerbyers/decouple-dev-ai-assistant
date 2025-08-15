@@ -2447,6 +2447,18 @@ async def slack_events(req: Request):
                     
                     # Only send response if ai_response is not None (avoid duplicates)
                     if ai_response is not None:
+                        # Check if the user's request includes adding tasks to Notion
+                        # This special case needs to happen AFTER we have the AI response to extract tasks from
+                        user_lower = user_text.lower()
+                        if any(phrase in user_lower for phrase in ["add to notion", "add these tasks to notion", "add tasks to notion", "tasks to notion", "add to my notion", "create in notion"]):
+                            # Extract and add tasks to Notion from the AI's response
+                            notion_result = execute_database_action("add_tasks_to_notion", ai_response=ai_response)
+                            if notion_result["success"]:
+                                ai_response += f"\n\n✅ {notion_result['message']}"
+                            else:
+                                ai_response += f"\n\n❌ {notion_result['message']}"
+                            logger.info(f"Added tasks to Notion: {notion_result['success']}")
+                        
                         # Update thread context with AI response
                         update_thread_context(None, channel, ai_response)
                         
