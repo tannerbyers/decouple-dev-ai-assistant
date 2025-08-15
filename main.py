@@ -7,7 +7,7 @@ from src.config_manager import config_manager
 from src.web_dashboard import integrate_dashboard_with_main_app
 from src.prompt_personas import PersonaPromptManager, PromptContext
 from src.enhanced_task_operations import EnhancedTaskOperations, BulkOperationParser, TaskAnalyzer
-import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess, sys
+import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess, sys, re
 from typing import Optional, Dict, List, Tuple, Any
 from notion_client.errors import APIResponseError
 from dataclasses import dataclass, asdict
@@ -1701,6 +1701,128 @@ def search_notion_database(database_id: str, query: str, property_name: str = No
         logger.error(f"Failed to search Notion database: {e}")
         return []
 
+def extract_tasks_from_ai_response(ai_response: str) -> List[Dict]:
+    """Extract individual tasks from AI response text and format them for Notion creation."""
+    tasks = []
+    
+    try:
+        # Log the AI response for debugging
+        logger.info(f"Extracting tasks from AI response: {ai_response[:300]}...")
+        
+        # Look for numbered lists and bullet points that indicate tasks
+        lines = ai_response.split('\n')
+        current_task = None
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Skip empty lines and headers
+            if not line or line.startswith('#') or line.startswith('**') or line.startswith('*OpsBrain'):
+                continue
+            
+            # Look for task indicators
+            task_indicators = [
+                r'^\d+\.',  # "1. Task title"
+                r'^•',     # "• Task title"
+                r'^-',     # "- Task title"
+                r'^\*\*.*?:\*\*',  # "**Action:** Task title"
+            ]
+            
+            is_task_line = False
+            for pattern in task_indicators:
+                if re.match(pattern, line):
+                    is_task_line = True
+                    break
+            
+            if is_task_line:
+                # Extract the task title by removing the indicator
+                task_title = re.sub(r'^(\d+\.|•|-|\*\*.*?:\*\*)', '', line).strip()
+                
+                # Skip if it's too short or looks like a category header
+                if len(task_title) < 10 or ':' in task_title[:20]:
+                    continue
+                
+                # Determine priority based on keywords
+                priority = "Medium"  # Default
+                if any(word in task_title.lower() for word in ['urgent', 'critical', 'asap', 'immediately']):
+                    priority = "High"
+                elif any(word in task_title.lower() for word in ['later', 'future', 'eventually', 'consider']):
+                    priority = "Low"
+                
+                # Determine project/area based on keywords
+                project = "General"  # Default
+                if any(word in task_title.lower() for word in ['sales', 'lead', 'client', 'prospect', 'outreach']):
+                    project = "Sales"
+                elif any(word in task_title.lower() for word in ['marketing', 'content', 'brand', 'social']):
+                    project = "Marketing"
+                elif any(word in task_title.lower() for word in ['delivery', 'project', 'develop', 'build']):
+                    project = "Delivery"
+                elif any(word in task_title.lower() for word in ['financial', 'budget', 'pricing', 'invoice']):
+                    project = "Financial"
+                elif any(word in task_title.lower() for word in ['hire', 'team', 'contractor', 'onboard']):
+                    project = "Team"
+                elif any(word in task_title.lower() for word in ['process', 'system', 'automate', 'workflow']):
+                    project = "Operations"
+                
+                # Create task with specific instructions in notes
+                notes = f"STEPS: 1. {task_title} 2. Document completion 3. Update status DELIVERABLE: Completed task with documentation"
+                
+                task = {
+                    'title': task_title[:100],  # Limit title length
+                    'status': 'To Do',
+                    'priority': priority,
+                    'project': project,
+                    'notes': notes
+                }
+                
+                tasks.append(task)
+                logger.info(f"Extracted task: {task_title[:50]}...")
+        
+        # If no tasks found using patterns, try to find tasks in sentences
+        if not tasks:
+            # Look for action-oriented sentences
+            sentences = ai_response.split('.')
+            for sentence in sentences:
+                sentence = sentence.strip()
+                
+                # Look for action verbs that indicate tasks
+                action_verbs = ['develop', 'create', 'implement', 'set up', 'build', 'design', 'optimize', 'automate', 'hire', 'document']
+                
+                if any(verb in sentence.lower() for verb in action_verbs) and len(sentence) > 20 and len(sentence) < 150:
+                    # This might be a task
+                    task_title = sentence.strip()
+                    
+                    # Determine priority and project as above
+                    priority = "Medium"
+                    if any(word in task_title.lower() for word in ['urgent', 'critical', 'asap', 'immediately']):
+                        priority = "High"
+                    
+                    project = "General"
+                    if any(word in task_title.lower() for word in ['sales', 'lead', 'client']):
+                        project = "Sales"
+                    elif any(word in task_title.lower() for word in ['marketing', 'content', 'brand']):
+                        project = "Marketing"
+                    
+                    notes = f"STEPS: 1. {task_title} 2. Review and refine 3. Mark complete DELIVERABLE: {task_title} completed successfully"
+                    
+                    task = {
+                        'title': task_title[:100],
+                        'status': 'To Do',
+                        'priority': priority,
+                        'project': project,
+                        'notes': notes
+                    }
+                    
+                    tasks.append(task)
+                    logger.info(f"Extracted sentence-based task: {task_title[:50]}...")
+        
+        logger.info(f"Successfully extracted {len(tasks)} tasks from AI response")
+        return tasks[:10]  # Limit to 10 tasks to avoid overwhelming
+        
+    except Exception as e:
+        logger.error(f"Error extracting tasks from AI response: {e}")
+        return []
+
 def execute_database_action(action_type: str, **kwargs) -> Dict:
     """Execute database actions based on AI analysis."""
     result = {"success": False, "message": "", "action": action_type}
@@ -1779,6 +1901,20 @@ def execute_database_action(action_type: str, **kwargs) -> Dict:
             result["success"] = success
             result["message"] = f"Metric '{kwargs.get('metric_name')}' logged successfully" if success else "Failed to log metric"
         
+        elif action_type == "add_tasks_to_notion":
+            # Extract tasks from the AI's response text and create them in Notion
+            tasks_extracted = extract_tasks_from_ai_response(kwargs.get('ai_response', ''))
+            if tasks_extracted:
+                success_count = 0
+                for task in tasks_extracted:
+                    if create_notion_task(**task):
+                        success_count += 1
+                result["success"] = success_count > 0
+                result["message"] = f"Created {success_count}/{len(tasks_extracted)} tasks in Notion successfully" if success_count > 0 else "Failed to create any tasks in Notion"
+            else:
+                result["success"] = False
+                result["message"] = "No tasks could be extracted from the response"
+        
         else:
             result["message"] = f"Unknown action type: {action_type}"
         
@@ -1802,6 +1938,7 @@ def parse_database_request(user_text: str) -> Dict:
         'trello_done': ['status to done', 'status done', 'mark as done', 'mark done', 'task done', 'set to done', 'as done', 'to done'],
         'trello_status': ['task status', 'check status', 'status of'],
         'add_business_tasks': ['add missing tasks', 'create all tasks', 'missing business tasks'],
+        'add_tasks_to_notion': ['add to notion', 'add these tasks to notion', 'add tasks to notion', 'tasks to notion', 'add to my notion', 'create in notion'],
         'search': ['find', 'search', 'look for', 'show me']
     }
     
