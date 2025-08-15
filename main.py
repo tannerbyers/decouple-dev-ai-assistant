@@ -7,6 +7,11 @@ from src.config_manager import config_manager
 from src.web_dashboard import integrate_dashboard_with_main_app
 from src.prompt_personas import PersonaPromptManager, PromptContext
 from src.enhanced_task_operations import EnhancedTaskOperations, BulkOperationParser, TaskAnalyzer
+from src.self_healing import (
+    initialize_self_healing_system, get_self_healing_system,
+    self_healing, with_circuit_breaker, error_recovery_context,
+    SystemComponent, ErrorSeverity, check_system_resources
+)
 import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess, sys, re
 from typing import Optional, Dict, List, Tuple, Any
 from notion_client.errors import APIResponseError
@@ -573,6 +578,52 @@ except Exception as e:
     logger.error(f"Failed to initialize enhanced task operations: {e}")
     enhanced_tasks = None
 
+# Initialize self-healing system with error handling
+try:
+    error_monitor, health_monitor, recovery_coordinator = initialize_self_healing_system(notion)
+    logger.info("✨ Self-healing system initialized successfully")
+    
+    # Register health checks for external services
+    async def check_slack_api_health():
+        try:
+            response = requests.get(
+                "https://slack.com/api/api.test",
+                headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
+                timeout=5
+            )
+            return response.ok
+        except:
+            return False
+    
+    async def check_notion_api_health():
+        try:
+            notion.users.me()
+            return True
+        except:
+            return False
+    
+    async def check_openai_api_health():
+        try:
+            if not llm:
+                return False
+            # Simple test call
+            test_response = llm.invoke("Hello")
+            return bool(test_response and test_response.content)
+        except:
+            return False
+    
+    # Register health checks
+    health_monitor.register_health_check(SystemComponent.SLACK_API, check_slack_api_health)
+    health_monitor.register_health_check(SystemComponent.NOTION_API, check_notion_api_health)
+    health_monitor.register_health_check(SystemComponent.OPENAI_API, check_openai_api_health)
+    
+    # Start health monitoring
+    health_monitor.start_monitoring()
+    
+except Exception as e:
+    logger.error(f"Failed to initialize self-healing system: {e}")
+    error_monitor, health_monitor, recovery_coordinator = None, None, None
+
 def get_app_version() -> str:
     """Get the current app version from git or fallback to timestamp."""
     try:
@@ -592,6 +643,8 @@ def add_version_timestamp(response: str) -> str:
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M UTC')
     return f"{response}\n\n---\n_OpsBrain v{version} • Updated: {timestamp}_"
 
+@self_healing(SystemComponent.SLACK_API, error_monitor) if error_monitor else lambda f: f
+@with_circuit_breaker(SystemComponent.SLACK_API, error_monitor) if error_monitor else lambda f: f
 def get_user_name(user_id: str) -> str:
     """Get user's display name from Slack API"""
     try:
@@ -1380,7 +1433,9 @@ async def bulk_create_notion_tasks(tasks: List[Dict], channel: str):
         "channel": channel,
         "text": final_message
     })
-def create_notion_task(title: str, status: str = "To Do", priority: str = "Medium", 
+@self_healing(SystemComponent.NOTION_API, error_monitor) if error_monitor else lambda f: f
+@with_circuit_breaker(SystemComponent.NOTION_API, error_monitor) if error_monitor else lambda f: f
+def create_notion_task(title: str, status: str = "To Do", priority: str = "Medium",
                       project: str = None, due_date: str = None, notes: str = None) -> bool:
     """Create a new task in the Notion tasks database with smart property detection."""
     try:
@@ -2064,6 +2119,8 @@ class SlackMessage(BaseModel):
     user_id: Optional[str] = None
     user_name: Optional[str] = None
 
+@self_healing(SystemComponent.NOTION_API, error_monitor) if error_monitor else lambda f: f
+@with_circuit_breaker(SystemComponent.NOTION_API, error_monitor) if error_monitor else lambda f: f
 def fetch_open_tasks():
     try:
         results = notion.databases.query(
