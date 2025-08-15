@@ -2452,8 +2452,53 @@ async def slack_events(req: Request):
                         # This special case needs to happen AFTER we have the AI response to extract tasks from
                         user_lower = user_text.lower()
                         if any(phrase in user_lower for phrase in ["add to notion", "add these tasks to notion", "add tasks to notion", "tasks to notion", "add to my notion", "create in notion"]):
-                            # Extract and add tasks to Notion from the AI's response
-                            notion_result = execute_database_action("add_tasks_to_notion", ai_response=ai_response)
+                            # For "add to notion" requests, we need to generate a proper task list
+                            # First, check if the AI response already contains extractable tasks
+                            extracted_tasks = extract_tasks_from_ai_response(ai_response)
+                            
+                            if not extracted_tasks:
+                                # If no tasks found, generate a structured task list based on the business advice
+                                logger.info("No extractable tasks found in AI response. Generating structured task list.")
+                                try:
+                                    task_generation_prompt = f"""Based on this business advice, create 3-5 specific, actionable tasks for Notion:
+
+{ai_response}
+
+Format each task as a numbered list item with specific actions. For example:
+1. Set up lead generation system using LinkedIn Sales Navigator
+2. Create content calendar with 4 posts per week schedule
+3. Build proposal template with two pricing options
+
+Each task should be:
+- Specific and actionable (not vague)
+- Completable in 1-4 hours
+- Include specific tools or methods when relevant
+
+Provide ONLY the numbered list, no other text:"""
+                                    
+                                    task_response = llm.invoke(task_generation_prompt)
+                                    task_list_text = task_response.content.strip()
+                                    logger.info(f"Generated task list: {task_list_text[:200]}...")
+                                    
+                                    # Extract tasks from the structured response
+                                    extracted_tasks = extract_tasks_from_ai_response(task_list_text)
+                                    
+                                except Exception as e:
+                                    logger.error(f"Error generating structured task list: {e}")
+                                    extracted_tasks = create_fallback_tasks(user_text)
+                            
+                            # Now create the tasks in Notion
+                            if extracted_tasks:
+                                notion_result = {"success": False, "message": ""}
+                                success_count = 0
+                                for task in extracted_tasks:
+                                    if create_notion_task(**task):
+                                        success_count += 1
+                                
+                                notion_result["success"] = success_count > 0
+                                notion_result["message"] = f"Created {success_count}/{len(extracted_tasks)} tasks in Notion successfully" if success_count > 0 else "Failed to create any tasks in Notion"
+                            else:
+                                notion_result = {"success": False, "message": "No tasks could be generated from the business advice"}
                             if notion_result["success"]:
                                 ai_response += f"\n\n✅ {notion_result['message']}"
                             else:
