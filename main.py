@@ -7,7 +7,7 @@ from src.config_manager import config_manager
 from src.web_dashboard import integrate_dashboard_with_main_app
 from src.prompt_personas import PersonaPromptManager, PromptContext
 from src.enhanced_task_operations import EnhancedTaskOperations, BulkOperationParser, TaskAnalyzer
-import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess
+import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess, sys
 from typing import Optional, Dict, List, Tuple, Any
 from notion_client.errors import APIResponseError
 from dataclasses import dataclass, asdict
@@ -67,10 +67,19 @@ if missing_vars and not TEST_MODE:
     raise ValueError(error_msg)
 
 # Log startup info  
-logger.info("Application starting up...")
-logger.info(f"TEST_MODE: {TEST_MODE}")
-logger.info(f"Environment variables loaded - SLACK_BOT_TOKEN: {'SET' if SLACK_BOT_TOKEN else 'NOT SET'}")
-logger.info(f"Environment variables loaded - SLACK_SIGNING_SECRET: {'SET' if SLACK_SIGNING_SECRET else 'NOT SET'}")
+logger.info("=" * 50)
+logger.info("🚀 OpsBrain AI Assistant - Starting up...")
+logger.info("=" * 50)
+logger.info(f"📊 Environment Check:")
+logger.info(f"   TEST_MODE: {TEST_MODE}")
+logger.info(f"   Python version: {sys.version}")
+logger.info(f"   Working directory: {os.getcwd()}")
+logger.info(f"   SLACK_BOT_TOKEN: {'SET' if SLACK_BOT_TOKEN else 'NOT SET'}")
+logger.info(f"   SLACK_SIGNING_SECRET: {'SET' if SLACK_SIGNING_SECRET else 'NOT SET'}")
+logger.info(f"   NOTION_API_KEY: {'SET' if NOTION_API_KEY else 'NOT SET'}")
+logger.info(f"   NOTION_DB_ID: {'SET' if NOTION_DB_ID else 'NOT SET'}")
+logger.info(f"   OPENAI_API_KEY: {'SET' if OPENAI_API_KEY else 'NOT SET'}")
+logger.info(f"   DATABASE_URL: {'SET' if os.getenv('DATABASE_URL') else 'NOT SET'}")
 
 # Initialize ChatOpenAI only if API key is available with timeout settings
 if OPENAI_API_KEY:

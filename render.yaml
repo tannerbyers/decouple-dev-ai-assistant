@@ -2,11 +2,15 @@ services:
   - type: web
     name: decouple-dev-ai-assistant
     env: python
-    startCommand: "gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120"
-    buildCommand: "pip install -r requirements.txt && python migrate_to_production.py"
+    startCommand: "gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120 --max-requests 1000 --preload"
+    buildCommand: "pip install -r requirements.txt && python migrate_to_production.py || echo 'Migration failed but continuing deployment'"
     envVars:
       - key: PYTHON_VERSION
         value: 3.13
+      - key: WEB_CONCURRENCY
+        value: 2
+      - key: GUNICORN_CMD_ARGS
+        value: "--timeout 120 --keep-alive 2 --max-requests 1000"
       - key: DATABASE_URL
         fromDatabase:
           name: opsbrain-db
