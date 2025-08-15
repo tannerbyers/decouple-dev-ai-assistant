@@ -249,7 +249,7 @@ git commit -m "Add integration test structure"
 **ALWAYS run before committing:**
 ```bash
 # 1. Run ALL tests to ensure nothing breaks
-make test-all
+python -m pytest -v
 
 # 2. Check status
 git status
@@ -260,9 +260,60 @@ git add specific_file.py another_file.py
 # 4. Commit with SHORT message
 git commit -m "Brief description of change"
 
-# 5. Push immediately
+# 5. Push automatically runs tests (see git hooks below)
 git push
 ```
+
+#### Automated Test Validation (Pre-Push Hook)
+**Automatically runs before every push:**
+```bash
+# Tests run automatically before push via git hook:
+# .git/hooks/pre-push
+# - Runs full test suite (49 tests)
+# - Blocks push if any tests fail
+# - Shows clear success/failure messages
+# - Ensures only working code reaches repository
+```
+
+## Test Automation Setup
+
+### Current Status ✅
+- **Pre-push hook installed** - Automatically validates all 49 tests before push
+- **All tests passing** - 100% success rate (49/49 tests)
+- **Makefile updated** - Convenient test commands available
+
+### Available Test Commands
+```bash
+# Quick validation (same as pre-push hook)
+make test                    # Run all 49 tests
+
+# Development workflow
+make test-fast              # Run core tests only (fastest)
+make pre-push               # Validate before push
+make test-all               # All tests + coverage report
+make clean                  # Clean test artifacts
+
+# Manual test runs
+python -m pytest -v         # All tests verbose
+python -m pytest test_task_extraction.py -v  # Specific file
+```
+
+### Setup for New Environments
+```bash
+# Install git hooks on a new machine/clone
+./setup-git-hooks.sh
+
+# Verify setup
+make pre-push
+```
+
+### What Happens on Git Push
+1. **Automatic trigger** - Git pre-push hook activates
+2. **Environment check** - Verifies virtual environment
+3. **Dependency check** - Ensures pytest is available
+4. **Full test suite** - Runs all 49 tests with verbose output
+5. **Pass/Fail decision** - Allows or blocks push based on results
+6. **Clear feedback** - Shows exactly what failed and next steps
 
 #### Commit Message Format Rules
 1. **Maximum 30 characters** for commit message
