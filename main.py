@@ -1203,7 +1203,7 @@ async def generate_task_backlog(user_text: str, business_goals: Dict, db_info: N
     """
     
     try:
-        ai_message = await llm.ainvoke(prompt)
+        ai_message = await asyncio.to_thread(llm.invoke, prompt)
         task_list_json = ai_message.content.strip()
         
         # Log the raw response for debugging
@@ -1381,6 +1381,7 @@ def create_notion_task(title: str, status: str = "To Do", priority: str = "Mediu
     """Create a new task in the Notion tasks database with smart property detection."""
     try:
         # Get database schema to check available properties
+        db_info = None
         try:
             db_info = notion.databases.retrieve(database_id=NOTION_DB_ID)
             available_props = set(db_info['properties'].keys())
@@ -1388,6 +1389,38 @@ def create_notion_task(title: str, status: str = "To Do", priority: str = "Mediu
         except Exception as e:
             logger.error(f"Could not retrieve database schema: {e}")
             available_props = set()
+            db_info = {'properties': {}}  # Provide empty structure for fallback
+            
+            # Auto-create bug fix task in Notion
+            try:
+                # Only attempt to create a task if this is our first error
+                if not hasattr(create_notion_task, '_error_task_created'):
+                    error_task = {
+                        'title': 'Fix Notion database property access bug',
+                        'status': 'To Do',
+                        'priority': 'High',
+                        'project': 'Tech Debt',
+                        'notes': f"STEPS:\n1. Fix error in database property retrieval: {str(e)}\n2. Ensure fallback logic handles all edge cases\n3. Add more robust error logging\n\nDELIVERABLE: Stable database access that never crashes on property failures"
+                    }
+                    # Create task with a direct API call to avoid infinite recursion
+                    try:
+                        # Basic minimal properties that should work in most databases
+                        properties = {
+                            "title": {
+                                "title": [{"text": {"content": error_task['title']}}]
+                            }
+                        }
+                        notion.pages.create(
+                            parent={"database_id": NOTION_DB_ID},
+                            properties=properties
+                        )
+                        logger.info("Created bug fix task for database property access issue")
+                        # Mark that we've created this task to avoid duplicates
+                        setattr(create_notion_task, '_error_task_created', True)
+                    except Exception as task_error:
+                        logger.error(f"Failed to create bug fix task: {task_error}")
+            except Exception as task_e:
+                logger.error(f"Error creating auto-fix task: {task_e}")
         
         # Build properties based on what's actually available in the database
         properties = {}
