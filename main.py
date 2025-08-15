@@ -1164,7 +1164,7 @@ async def generate_task_backlog(user_text: str, business_goals: Dict, db_info: N
     
     example_json = '[{"title": "Example Task", "status": "To Do", "priority": "High", "project": "Marketing", "notes": "Task details"}]'
     
-    prompt = f"""You are OpsBrain, a CEO-level AI assistant specializing in comprehensive task planning.
+    prompt = f"""You are OpsBrain, a CEO-level AI assistant specializing in creating SPECIFIC, ACTIONABLE business tasks.
 
     Business Goals:
     {goal_summary}
@@ -1173,18 +1173,29 @@ async def generate_task_backlog(user_text: str, business_goals: Dict, db_info: N
 
     Notion Database Properties: {json.dumps(db_info.properties)}
 
-    CRITICAL: Generate a COMPLETE task backlog covering ALL areas of the business. Don't create partial lists.
+    CRITICAL TASK REQUIREMENTS:
+    1. Each task must be a SINGLE, COMPLETABLE unit of work
+    2. Tasks must include SPECIFIC instructions in the notes - exactly what to do, where to go, what to read
+    3. NO vague tasks like "Create brand strategy" - instead "Read 'Building a StoryBrand' chapters 1-3 and write your one-liner using the framework"
+    4. Include specific websites, tools, methodologies, or resources to use
+    5. Tasks should take 30 minutes to 4 hours max - if bigger, break into smaller tasks
+    6. Each task should be immediately actionable - no research needed to start
     
-    For business success, identify missing tasks in:
-    - Sales & Marketing (lead gen, content, outreach, proposals)
-    - Client Delivery (project setup, quality assurance, documentation)
-    - Operations (processes, systems, automation)
-    - Financial (pricing, invoicing, metrics tracking)
-    - Product Development (features, testing, deployment)
-    - Team & Hiring (recruitment, onboarding, management)
+    TASK AREAS TO COVER:
+    - Sales & Marketing: specific outreach actions, content creation steps, lead generation activities
+    - Client Delivery: exact setup procedures, quality checklists, documentation templates
+    - Operations: specific process documentation, automation setup steps
+    - Financial: pricing research, invoicing setup, metric tracking implementation
+    - Product Development: feature specifications, testing procedures, deployment steps
+    - Team & Hiring: job posting creation, interview templates, onboarding checklists
+    
+    NOTES FIELD REQUIREMENTS:
+    - Start with "STEPS:" followed by numbered action items
+    - Include specific URLs, book chapters, or methodology names when relevant
+    - End with "DELIVERABLE:" and exactly what you'll have when done
+    - Example: "STEPS: 1. Go to canva.com and create account 2. Browse brand kit templates for agencies 3. Download brand colors guide template 4. Fill in your primary colors (#HEX codes) DELIVERABLE: Brand color palette document saved as PDF"
     
     Each task must have: title, status, priority (High/Medium/Low), project, notes
-    Include SOPs in notes where needed.
     
     IMPORTANT: You must respond with ONLY a valid JSON array. No explanations, no markdown, no code blocks.
     Start your response with [ and end with ]. Example format:
