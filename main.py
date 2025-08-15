@@ -1774,7 +1774,6 @@ async def slack_events(req: Request):
                                 ai_response = "🧹 I'll analyze all your tasks and remove anything that doesn't align with your current business state. This process will run in the background, and I'll update you with results."
                                 # Start the async task cleanup process safely
                                 try:
-                                    import asyncio
                                     # Check if there's already an event loop running
                                     try:
                                         loop = asyncio.get_event_loop()
@@ -1812,7 +1811,6 @@ async def slack_events(req: Request):
                                 ai_response = "🤖 I understand you want me to generate a task backlog. Let me analyze your business goals and create comprehensive tasks for you. This process will run in the background, and I'll update you with progress."
                                 # Start the async task generation process safely
                                 try:
-                                    import asyncio
                                     # Check if there's already an event loop running
                                     try:
                                         loop = asyncio.get_event_loop()
@@ -1967,7 +1965,6 @@ async def slack_events(req: Request):
                         response = "🧹 I'll analyze all your tasks and remove anything that doesn't align with your current business state. This process will run in the background, and I'll update you with results."
                         # Start the async task cleanup process safely
                         try:
-                            import asyncio
                             # Check if there's already an event loop running
                             try:
                                 loop = asyncio.get_event_loop()
@@ -2008,7 +2005,6 @@ async def slack_events(req: Request):
                         response = "🤖 I understand you want me to generate a task backlog. Let me analyze your business goals and create comprehensive tasks for you. This process will run in the background, and I'll update you with progress."
                         # Start the async task generation process safely
                         try:
-                            import asyncio
                             # Check if there's already an event loop running
                             try:
                                 loop = asyncio.get_event_loop()
