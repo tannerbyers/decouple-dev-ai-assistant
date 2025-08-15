@@ -221,8 +221,8 @@ def test_database_operations():
     except Exception as e:
         print(f"⚠️  Could not clean up test database: {e}")
     
-    return tests_passed == tests_total
+    # Use assert instead of return for pytest compatibility
+    assert tests_passed == tests_total, f"Only {tests_passed}/{tests_total} tests passed"
 
 if __name__ == "__main__":
-    success = test_database_operations()
-    sys.exit(0 if success else 1)
+    test_database_operations()

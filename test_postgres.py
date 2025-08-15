@@ -19,10 +19,10 @@ def test_postgres_import():
     try:
         import psycopg2
         print("✅ psycopg2 is available")
-        return True
+        assert True  # Test passed
     except ImportError as e:
         print(f"❌ psycopg2 not available: {e}")
-        return False
+        assert False, f"psycopg2 not available: {e}"
 
 def test_postgres_module():
     """Test that our PostgreSQL module can be imported."""
@@ -30,13 +30,13 @@ def test_postgres_module():
         sys.path.append('src')
         from postgres_database import PostgresDatabaseManager, create_database_manager
         print("✅ PostgreSQL database module imports successfully")
-        return True
+        assert True  # Test passed
     except ImportError as e:
         print(f"❌ PostgreSQL module import failed: {e}")
-        return False
+        assert False, f"PostgreSQL module import failed: {e}"
     except Exception as e:
         print(f"❌ PostgreSQL module error: {e}")
-        return False
+        assert False, f"PostgreSQL module error: {e}"
 
 def test_factory_function():
     """Test the database manager factory function."""
@@ -76,11 +76,11 @@ def test_factory_function():
         elif 'DATABASE_URL' in os.environ:
             del os.environ['DATABASE_URL']
         
-        return True
+        assert True  # Test passed
         
     except Exception as e:
         print(f"❌ Factory function test failed: {e}")
-        return False
+        assert False, f"Factory function test failed: {e}"
 
 def main():
     """Run all tests."""

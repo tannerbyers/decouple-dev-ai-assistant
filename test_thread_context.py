@@ -3,13 +3,9 @@ import pytest
 import time
 from unittest.mock import patch, MagicMock
 
-# Set environment variables before importing main
-os.environ['SLACK_BOT_TOKEN'] = 'fake_slack_token'
-os.environ['SLACK_SIGNING_SECRET'] = 'fake_signing_secret'
-os.environ['NOTION_API_KEY'] = 'fake_notion_key'
-os.environ['NOTION_DB_ID'] = 'fake_db_id'
-os.environ['OPENAI_API_KEY'] = 'fake_openai_key'
-os.environ['TEST_MODE'] = 'true'
+# Setup test environment
+from test_utils import setup_test_environment
+setup_test_environment()
 
 from main import get_thread_context, update_thread_context, cleanup_old_threads, thread_contexts
 

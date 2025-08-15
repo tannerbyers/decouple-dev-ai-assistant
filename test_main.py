@@ -19,16 +19,9 @@ def setup_timeout():
     yield
     signal.alarm(0)  # Cancel alarm
 
-# Set environment variables before importing main
-os.environ['SLACK_BOT_TOKEN'] = 'fake_slack_token'
-os.environ['NOTION_API_KEY'] = 'fake_notion_key'
-os.environ['NOTION_DB_ID'] = 'fake_db_id'
-os.environ['OPENAI_API_KEY'] = 'fake_openai_key'
-os.environ['TEST_MODE'] = 'true'
-# Trello environment variables for CEO-level functionality
-os.environ['TRELLO_API_KEY'] = 'fake_trello_key'
-os.environ['TRELLO_TOKEN'] = 'fake_trello_token'
-os.environ['TRELLO_BOARD_ID'] = 'fake_board_id'
+# Setup test environment
+from test_utils import setup_test_environment
+setup_test_environment()
 
 from main import app, fetch_open_tasks, analyze_business_request, handle_task_backlog_request, BusinessGoal, GoalStatus, Priority, BusinessArea, NotionDBInfo, generate_task_backlog, bulk_create_notion_tasks, parse_database_request, execute_database_action, generate_ceo_insights
 

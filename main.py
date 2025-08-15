@@ -5,6 +5,8 @@ from notion_client import Client as NotionClient
 from src.trello_client import trello_client
 from src.config_manager import config_manager
 from src.web_dashboard import integrate_dashboard_with_main_app
+from src.prompt_personas import PersonaPromptManager, PromptContext
+from src.enhanced_task_operations import EnhancedTaskOperations, BulkOperationParser, TaskAnalyzer
 import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess
 from typing import Optional, Dict, List, Tuple, Any
 from notion_client.errors import APIResponseError
@@ -68,9 +70,16 @@ logger.info(f"TEST_MODE: {TEST_MODE}")
 logger.info(f"Environment variables loaded - SLACK_BOT_TOKEN: {'SET' if SLACK_BOT_TOKEN else 'NOT SET'}")
 logger.info(f"Environment variables loaded - SLACK_SIGNING_SECRET: {'SET' if SLACK_SIGNING_SECRET else 'NOT SET'}")
 
-# Initialize ChatOpenAI only if API key is available
+# Initialize ChatOpenAI only if API key is available with timeout settings
 if OPENAI_API_KEY:
-    llm = ChatOpenAI(api_key=OPENAI_API_KEY, model="gpt-4")
+    # Configure OpenAI with timeouts to prevent hanging
+    llm = ChatOpenAI(
+        api_key=OPENAI_API_KEY, 
+        model="gpt-4",
+        timeout=45,  # 45 second timeout for API calls
+        request_timeout=45,  # Additional request timeout
+        max_retries=2  # Retry failed requests twice
+    )
 else:
     llm = None
     print("Warning: OPENAI_API_KEY not found in environment variables")
@@ -490,6 +499,15 @@ Close:
 load_business_brain()
 load_task_matrix()
 
+# Initialize persona-based prompt system
+prompt_manager = PersonaPromptManager()
+
+# Initialize enhanced task operations
+if NOTION_API_KEY and NOTION_DB_ID:
+    enhanced_tasks = EnhancedTaskOperations(notion, NOTION_DB_ID)
+else:
+    enhanced_tasks = None
+
 def get_app_version() -> str:
     """Get the current app version from git or fallback to timestamp."""
     try:
@@ -614,28 +632,30 @@ async def analyze_and_remove_irrelevant_tasks(user_text: str, channel: str) -> s
     for task in all_tasks:
         task_summaries.append(f"ID: {task['id'][:8]}... | Title: {task['title']} | Status: {task['status']} | Priority: {task['priority']} | Project: {task['project']} | Notes: {task['notes'][:50]}...")
     
-    prompt = f"""You are OpsBrain, a CEO-level AI assistant. Analyze these tasks and identify which ones should be REMOVED because they:
-1. Don't align with current business goals
-2. Are outdated or no longer relevant
-3. Are duplicates or redundant
-4. Are low-value busy work that won't move the revenue needle
-5. Are poorly defined or unclear
+    prompt = f"""You are OpsBrain, a CEO-level AI assistant helping manage tasks effectively.
+
+User Request: "{user_text}"
 
 Current Business Context:
-{goal_summary}
+{goal_summary if goal_summary.strip() else "Focus: Revenue generation, client delivery, operational efficiency"}
 
-Business Focus: Revenue generation, client delivery, and operational efficiency
+I need you to analyze these tasks and identify which ones should be REMOVED because they:
+1. Don't align with current priorities at your scale
+2. Are redundant or duplicates (like multiple authentication error tasks)
+3. Are outdated or no longer relevant
+4. Are poorly defined or unclear
+5. Are low-value busy work that won't move the revenue needle
+6. Don't make sense for the current business state
 
-TASKS TO ANALYZE:
-{chr(10).join(task_summaries[:50])}  # Limit to first 50 tasks
+TASKS TO ANALYZE (showing ID prefix, title, status, priority, project, notes):
+{chr(10).join(task_summaries[:50])}
+
+Be aggressive in identifying redundant tasks, authentication errors, outdated items, and anything that doesn't align with current business priorities.
 
 RETURN ONLY THE TASK IDs (the 8-character prefix) OF TASKS TO REMOVE, one per line. No explanations, just the IDs.
 If no tasks should be removed, return "NONE".
 
-Example response:
-12345678
-87654321
-NONE
+Task IDs to remove:
 """
     
     try:
@@ -1711,21 +1731,40 @@ async def slack_events(req: Request):
                         ai_response = "Sorry, OpenAI API key is not configured."
                     else:
                         try:
-                            # Include conversation context in prompt if available
-                            conversation_context = "\n".join(context['messages'][-6:]) if len(context['messages']) > 1 else ""
-                            context_prompt = f"\n\nConversation context:\n{conversation_context}" if conversation_context else ""
-                            
-                            # Analyze the business context of the request
-                            analysis = analyze_business_request(user_text)
-                            
-                            # Check if this requires database action
-                            db_request = parse_database_request(user_text)
-                            
-                            # Execute database action if needed
-                            db_result = None
-                            if db_request['requires_db_action']:
-                                db_result = execute_database_action(db_request['action'], **db_request['params'])
-                                logger.info(f"Database action result: {db_result}")
+                            # Set timeout for the entire processing operation - only in main thread
+                            try:
+                                import signal
+                                
+                                def timeout_handler(signum, frame):
+                                    raise TimeoutError("Operation timed out")
+                                
+                                # Set 60 second timeout for processing (only works in main thread)
+                                signal.signal(signal.SIGALRM, timeout_handler)
+                                signal.alarm(60)  # 60 second timeout
+                                signal_enabled = True
+                            except (ValueError, OSError):
+                                # Signal handling not available (e.g., in background thread or tests)
+                                signal_enabled = False
+                                
+                            try:
+                                # Include conversation context in prompt if available
+                                conversation_context = "\n".join(context['messages'][-6:]) if len(context['messages']) > 1 else ""
+                                context_prompt = f"\n\nConversation context:\n{conversation_context}" if conversation_context else ""
+                                
+                                # Analyze the business context of the request
+                                analysis = analyze_business_request(user_text)
+                                
+                                # Check if this requires database action
+                                db_request = parse_database_request(user_text)
+                                
+                                # Execute database action if needed
+                                db_result = None
+                                if db_request['requires_db_action']:
+                                    db_result = execute_database_action(db_request['action'], **db_request['params'])
+                                    logger.info(f"Database action result: {db_result}")
+                            finally:
+                                if signal_enabled:
+                                    signal.alarm(0)  # Cancel timeout
                             
                             if analysis['request_type'] == 'help':
                                 # Direct help response - no LLM needed
@@ -1794,37 +1833,49 @@ async def slack_events(req: Request):
                                 except Exception as e:
                                     logger.error(f"Error in task backlog generation: {e}")
                                     ai_response += "\n\n⚠️ There was an issue starting the task backlog generation. Please try again later."
-                            elif analysis['is_ceo_focused'] or analysis['request_type'] in ['dashboard', 'goal_creation', 'planning']:
-                                # Use CEO-focused response generation
-                                if analysis['request_type'] in ['dashboard', 'goal_creation', 'planning']:
-                                    ai_response = generate_ceo_insights(user_text, tasks, analysis)
-                                    if not ai_response.startswith('📊') and not ai_response.startswith('🎯') and not ai_response.startswith('📋'):
-                                        # It's a prompt, not a direct response
-                                        ai_message = llm.invoke(ai_response)
-                                        ai_response = ai_message.content
-                                else:
-                                    prompt = generate_ceo_insights(user_text, tasks, analysis)
-                                    ai_message = llm.invoke(prompt)
-                                    ai_response = ai_message.content
+                            # Only handle other cases if we didn't already handle task_cleanup or task_backlog
                             else:
-                                # Standard OpsBrain response - CEO style
-                                prompt = f"""You are OpsBrain, a CEO-level AI assistant. Respond like a strategic executive.
-
-Current tasks: {len(tasks)} pending
-User request: '{user_text}'{context_prompt}
-
-RESPONSE RULES:
-- Task completed: "Task completed" or "Done"
-- Issue found: "Issue: [specific problem]"
-- Questions: 1-2 sentence strategic answer
-- Requests: Confirm action or identify blocker
-- No bullet points or long explanations
-- Maximum 2 sentences unless complex strategy question
-- Focus on revenue/efficiency blockers only
-
-Respond:"""
-                                ai_message = llm.invoke(prompt)
-                                ai_response = ai_message.content
+                                # Use new persona-based prompt system
+                                context_obj = PromptContext(
+                                    user_text=user_text,
+                                    tasks=tasks,
+                                    business_goals=business_goals,
+                                    dashboard_data=get_ceo_dashboard(),
+                                    conversation_context=context['messages'],
+                                    detected_areas=analysis.get('detected_areas', []),
+                                    task_count=len(tasks)
+                                )
+                                
+                                # Check for bulk operations first
+                                bulk_operation = BulkOperationParser.parse_bulk_request(user_text)
+                                
+                                if bulk_operation and enhanced_tasks:
+                                    # Execute bulk operation with proper async handling
+                                    try:
+                                        # Run the async operation in the event loop
+                                        loop = asyncio.new_event_loop()
+                                        asyncio.set_event_loop(loop)
+                                        try:
+                                            result = loop.run_until_complete(enhanced_tasks.execute_bulk_operation(bulk_operation))
+                                            ai_response = f"🔧 **Bulk Operation Result:**\n{result.message}"
+                                            if result.errors:
+                                                ai_response += f"\n\n⚠️ Errors: {'; '.join(result.errors[:3])}"
+                                        finally:
+                                            loop.close()
+                                    except Exception as e:
+                                        logger.error(f"Bulk operation error: {e}")
+                                        ai_response = f"❌ Error executing bulk operation: {str(e)}"
+                                else:
+                                    # Generate persona-appropriate prompt and get AI response
+                                    persona_prompt = prompt_manager.generate_prompt(context_obj)
+                                    
+                                    # Log classification for debugging
+                                    classification = prompt_manager.get_request_classification(user_text, analysis.get('detected_areas', []))
+                                    logger.info(f"Request classified as: {classification['persona']} for {classification['request_type']}")
+                                    
+                                    # Get AI response using persona prompt
+                                    ai_message = llm.invoke(persona_prompt)
+                                    ai_response = ai_message.content
                             
                             # If database action was executed, prepend the result to the AI response
                             if db_result:
