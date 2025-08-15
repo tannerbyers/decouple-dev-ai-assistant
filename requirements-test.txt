@@ -1,18 +1,4 @@
-# Testing requirements for comprehensive coverage
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.0.0
-pytest-mock>=3.10.0
+# Minimal testing requirements
+pytest>=7.4.0
 pytest-timeout>=2.1.0
-
-# For memory monitoring in tests
-psutil>=5.9.0
-
-# For HTTP client testing
 httpx>=0.24.0
-
-# For concurrent testing
-pytest-xdist>=3.0.0
-
-# For better test reporting
-pytest-html>=3.1.0
