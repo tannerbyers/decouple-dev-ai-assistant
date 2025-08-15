@@ -1203,7 +1203,11 @@ async def generate_task_backlog(user_text: str, business_goals: Dict, db_info: N
     """
     
     try:
-        ai_message = await asyncio.to_thread(llm.invoke, prompt)
+        # Use the proper async call method based on LLM configuration
+        if hasattr(llm, 'ainvoke'):
+            ai_message = await llm.ainvoke(prompt)
+        else:
+            ai_message = await asyncio.to_thread(llm.invoke, prompt)
         task_list_json = ai_message.content.strip()
         
         # Log the raw response for debugging
