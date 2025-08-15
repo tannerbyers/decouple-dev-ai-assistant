@@ -237,15 +237,19 @@ def load_business_goals_from_json(filename: str = "business_goals.json") -> None
         logger.error(f"Error loading business goals from {filename}: {e}")
         logger.info("Starting with empty business goals.")
 
-# Load business goals from JSON file at startup
-load_business_goals_from_json()
+# Load business goals from JSON file at startup with error handling
+try:
+    load_business_goals_from_json()
+except Exception as e:
+    logger.error(f"Failed to load business goals during startup: {e}")
+    logger.info("Continuing with empty business goals")
 
 # CEO Operator System Components
 business_brain: Dict[str, Any] = {}
 task_matrix: Dict[str, List[str]] = {}
 
 def load_business_brain() -> Dict[str, Any]:
-    """Load business brain configuration from YAML file."""
+    """Load business brain configuration from YAML file with robust error handling."""
     global business_brain
     try:
         if os.path.exists('business_brain.yaml'):
@@ -259,13 +263,27 @@ def load_business_brain() -> Dict[str, Any]:
                 'goals': {'north_star': 'Hit $30k/mo revenue'},
                 'policy': {'priority_order': ['RevenueNow', 'Retention', 'Systems', 'Brand']}
             }
+    except yaml.YAMLError as e:
+        logger.error(f"YAML parsing error in business brain: {e}")
+        business_brain = {
+            'company': {'name': 'Decouple Dev', 'positioning': 'Async dev agency'},
+            'goals': {'north_star': 'Hit $30k/mo revenue'},
+            'policy': {'priority_order': ['RevenueNow', 'Retention', 'Systems', 'Brand']}
+        }
+    except FileNotFoundError as e:
+        logger.error(f"Business brain file not found: {e}")
+        business_brain = {
+            'company': {'name': 'Decouple Dev', 'positioning': 'Async dev agency'},
+            'goals': {'north_star': 'Hit $30k/mo revenue'},
+            'policy': {'priority_order': ['RevenueNow', 'Retention', 'Systems', 'Brand']}
+        }
     except Exception as e:
-        logger.error(f"Error loading business brain: {e}")
+        logger.error(f"Unexpected error loading business brain: {e}")
         business_brain = {}
     return business_brain
 
 def load_task_matrix() -> Dict[str, List[str]]:
-    """Load task matrix from YAML file."""
+    """Load task matrix from YAML file with robust error handling."""
     global task_matrix
     try:
         if os.path.exists('task_matrix.yaml'):
@@ -281,8 +299,24 @@ def load_task_matrix() -> Dict[str, List[str]]:
                 'delivery': ['Process documentation', 'Quality assurance'],
                 'ops': ['Weekly reviews', 'System maintenance']
             }
+    except yaml.YAMLError as e:
+        logger.error(f"YAML parsing error in task matrix: {e}")
+        task_matrix = {
+            'marketing': ['Define ICP/pain bullets', 'Content creation'],
+            'sales': ['Outbound outreach', 'Discovery calls'],
+            'delivery': ['Process documentation', 'Quality assurance'],
+            'ops': ['Weekly reviews', 'System maintenance']
+        }
+    except FileNotFoundError as e:
+        logger.error(f"Task matrix file not found: {e}")
+        task_matrix = {
+            'marketing': ['Define ICP/pain bullets', 'Content creation'],
+            'sales': ['Outbound outreach', 'Discovery calls'],
+            'delivery': ['Process documentation', 'Quality assurance'],
+            'ops': ['Weekly reviews', 'System maintenance']
+        }
     except Exception as e:
-        logger.error(f"Error loading task matrix: {e}")
+        logger.error(f"Unexpected error loading task matrix: {e}")
         task_matrix = {}
     return task_matrix
 
@@ -506,17 +540,37 @@ Close:
 "We start with a fixed-price audit (1 week). If you like the plan, we book a 1–2 week sprint. Want me to send the two-option proposal today?"
 """
 
-# Load configurations at startup
-load_business_brain()
-load_task_matrix()
+# Load configurations at startup with error handling
+try:
+    load_business_brain()
+except Exception as e:
+    logger.error(f"Failed to load business brain during startup: {e}")
+    logger.info("Continuing with default business brain configuration")
 
-# Initialize persona-based prompt system
-prompt_manager = PersonaPromptManager()
+try:
+    load_task_matrix()
+except Exception as e:
+    logger.error(f"Failed to load task matrix during startup: {e}")
+    logger.info("Continuing with default task matrix configuration")
 
-# Initialize enhanced task operations
-if NOTION_API_KEY and NOTION_DB_ID:
-    enhanced_tasks = EnhancedTaskOperations(notion, NOTION_DB_ID)
-else:
+# Initialize persona-based prompt system with error handling
+try:
+    prompt_manager = PersonaPromptManager()
+    logger.info("Successfully initialized persona prompt manager")
+except Exception as e:
+    logger.error(f"Failed to initialize persona prompt manager: {e}")
+    prompt_manager = None
+
+# Initialize enhanced task operations with error handling
+try:
+    if NOTION_API_KEY and NOTION_DB_ID:
+        enhanced_tasks = EnhancedTaskOperations(notion, NOTION_DB_ID)
+        logger.info("Successfully initialized enhanced task operations")
+    else:
+        enhanced_tasks = None
+        logger.warning("Enhanced task operations not available - missing Notion credentials")
+except Exception as e:
+    logger.error(f"Failed to initialize enhanced task operations: {e}")
     enhanced_tasks = None
 
 def get_app_version() -> str:
@@ -730,6 +784,95 @@ Task IDs to remove:
         logger.error(f"Error in task analysis: {e}")
         return f"❌ Error analyzing tasks: {str(e)}"
 
+async def analyze_tasks_with_recommendations(user_text: str) -> str:
+    """Analyze all tasks and provide detailed recommendations without removing anything."""
+    logger.info("Starting task analysis with recommendations...")
+    
+    try:
+        # Get all tasks with details
+        all_tasks = get_all_tasks_with_details()
+        if not all_tasks:
+            return "No tasks found to analyze."
+        
+        # Get business context
+        dashboard = get_ceo_dashboard()
+        goal_summary = "\n".join([f"- {g.title}: {g.description}" for g in business_goals.values()])
+        
+        # Categorize tasks by status
+        status_counts = {}
+        priority_counts = {}
+        for task in all_tasks:
+            status = task['status'] or 'No Status'
+            priority = task['priority'] or 'No Priority'
+            status_counts[status] = status_counts.get(status, 0) + 1
+            priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        
+        # Create simplified task list for analysis
+        task_summaries = []
+        for i, task in enumerate(all_tasks[:30], 1):  # Analyze first 30 tasks to keep response manageable
+            task_summaries.append(f"{i}. [{task['status']}] {task['title']} (Priority: {task['priority'] or 'None'})")
+        
+        prompt = f"""You are OpsBrain, a CEO-level AI assistant specializing in task management and business prioritization.
+
+User Request: "{user_text}"
+
+Current Business Context:
+{goal_summary if goal_summary.strip() else "Focus: Revenue generation, client delivery, operational efficiency"}
+
+Task Overview:
+- Total tasks: {len(all_tasks)}
+- Status breakdown: {', '.join([f'{status}: {count}' for status, count in status_counts.items()])}
+- Priority breakdown: {', '.join([f'{priority}: {count}' for priority, count in priority_counts.items()])}
+
+First 30 Tasks to Review:
+{chr(10).join(task_summaries)}
+
+Please provide a comprehensive task review including:
+
+1. **TASK HEALTH ASSESSMENT**
+   - Overall task organization quality
+   - Patterns you notice (good and bad)
+   - Task clarity and actionability
+
+2. **RECOMMENDED ACTIONS**
+   - Which tasks should be prioritized immediately (and why)
+   - Which tasks should be deleted/archived (and why)
+   - Which tasks need better definition
+   - Any duplicates or redundancies you spot
+
+3. **STRATEGIC INSIGHTS**
+   - Are tasks aligned with business goals?
+   - Missing task categories or areas
+   - Suggestions for better task management
+
+4. **NEXT STEPS**
+   - Top 3-5 actionable recommendations
+   - Any process improvements needed
+
+Format your response clearly with headers and bullet points. Be specific about task numbers when referencing them.
+"""
+        
+        if not llm:
+            return "OpenAI API key not configured. Cannot analyze tasks."
+        
+        # Get AI analysis with timeout handling
+        try:
+            ai_message = llm.invoke(prompt)
+            analysis = ai_message.content.strip()
+            
+            # Add summary header
+            result = f"📊 **TASK REVIEW ANALYSIS** ({len(all_tasks)} total tasks)\n\n{analysis}"
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error getting AI analysis: {e}")
+            return f"❌ Error analyzing tasks: {str(e)}"
+            
+    except Exception as e:
+        logger.error(f"Error in task analysis: {e}")
+        return f"❌ Error analyzing tasks: {str(e)}"
+
 def analyze_business_request(user_text: str) -> Dict:
     """Analyze user request and determine business context and recommendations."""
     user_lower = user_text.lower()
@@ -758,7 +901,8 @@ def analyze_business_request(user_text: str) -> Dict:
     
     # Detect request type - more specific patterns first
     request_types = {
-        'task_cleanup': ['review all tasks', 'remove tasks', 'clean up tasks', 'delete tasks', 'cleanup tasks', 'remove irrelevant', 'doesnt make sense', "doesn't make sense", 'remove anything'],
+        'task_review': ['review all my tasks', 'review my tasks', 'analyze my tasks', 'which tasks should be removed', 'what tasks should i remove', 'task analysis', 'analyze all tasks', 'review all tasks'],
+        'task_cleanup': ['remove tasks', 'clean up tasks', 'delete tasks', 'cleanup tasks', 'remove irrelevant', 'doesnt make sense', "doesn't make sense", 'remove anything'],
         'task_backlog': ['create all tasks', 'task backlog', 'generate tasks', 'missing tasks', 'all the tasks', 'first customer', 'missing items'],
         'goal_creation': ['goal', 'create', 'add', 'new objective', 'target'],
         'progress_update': ['progress', 'update', 'status', 'completed', 'done'],
@@ -1817,6 +1961,42 @@ async def slack_events(req: Request):
                                 except Exception as e:
                                     logger.error(f"Error in task cleanup: {e}")
                                     ai_response += f"\n\n⚠️ There was an issue starting the task cleanup: {str(e)}"
+                            elif analysis['request_type'] == 'task_review':
+                                # Trigger async task review with recommendations
+                                try:
+                                    # Check if there's already an event loop running
+                                    try:
+                                        loop = asyncio.get_event_loop()
+                                        if loop.is_running():
+                                            # Create task in existing loop
+                                            async def run_task_review():
+                                                result = await analyze_tasks_with_recommendations(user_text)
+                                                # Send final result to Slack
+                                                requests.post("https://slack.com/api/chat.postMessage", headers={
+                                                    "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+                                                    "Content-type": "application/json"
+                                                }, json={
+                                                    "channel": channel,
+                                                    "text": add_version_timestamp(result)
+                                                })
+                                            asyncio.create_task(run_task_review())
+                                            ai_response = "📋 I'll review all your tasks and provide detailed recommendations. This analysis will take a moment..."
+                                        else:
+                                            # Run in existing loop
+                                            result = loop.run_until_complete(analyze_tasks_with_recommendations(user_text))
+                                            ai_response = result
+                                    except RuntimeError:
+                                        # No loop exists, create new one
+                                        loop = asyncio.new_event_loop()
+                                        asyncio.set_event_loop(loop)
+                                        try:
+                                            result = loop.run_until_complete(analyze_tasks_with_recommendations(user_text))
+                                            ai_response = result
+                                        finally:
+                                            loop.close()
+                                except Exception as e:
+                                    logger.error(f"Error in task review: {e}")
+                                    ai_response = f"📋 I'll review your tasks and provide recommendations.\n\n⚠️ There was an issue starting the analysis: {str(e)}"
                             elif analysis['request_type'] == 'task_backlog':
                                 # Trigger async task backlog generation
                                 ai_response = "🤖 I understand you want me to generate a task backlog. Let me analyze your business goals and create comprehensive tasks for you. This process will run in the background, and I'll update you with progress."
