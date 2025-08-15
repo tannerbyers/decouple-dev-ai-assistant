@@ -19,6 +19,8 @@ from concurrent.futures import ThreadPoolExecutor
 # Initialize FastAPI application
 app = FastAPI()
 
+# Deployment verification: asyncio import fix applied (v2025-01-15)
+
 # Environment variables
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET")
