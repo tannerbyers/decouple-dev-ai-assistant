@@ -31,6 +31,10 @@ os.environ['NOTION_PROJECTS_DB_ID'] = 'fake_projects_db_id'
 os.environ['OPENAI_API_KEY'] = 'fake_openai_key'
 os.environ['TEST_MODE'] = 'true'
 
+# Add parent directory to sys.path for imports
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from main import (
     app, 
     BusinessGoal, GoalStatus, Priority, BusinessArea,

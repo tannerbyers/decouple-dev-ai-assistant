@@ -17,3 +17,6 @@ psycopg2-binary
 jinja2>=3.0.0
 pyyaml>=6.0.0
 streamlit>=1.25.0
+pytest-asyncio
+selenium
+webdriver-manager
