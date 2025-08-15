@@ -877,42 +877,60 @@ def analyze_business_request(user_text: str) -> Dict:
     """Analyze user request and determine business context and recommendations."""
     user_lower = user_text.lower()
 
-    if "help" in user_lower:
+    # Check for help first, but be more specific to avoid false positives
+    # Only return help if the text is specifically asking for help, not just containing "help"
+    help_words = user_text.split()
+    if (user_lower.strip() == "help" or 
+        (user_lower.startswith("help me") and len(help_words) <= 4 and not any(word in user_lower for word in ['task', 'missing', 'create', 'all'])) or
+        user_lower.startswith("i need help") and len(help_words) <= 5 and not any(word in user_lower for word in ['task', 'missing', 'create', 'all']) or 
+        user_lower.endswith("help") and len(help_words) <= 2):
         return {
             'request_type': 'help',
             'detected_areas': [],
             'is_ceo_focused': False
         }
     
-    # Detect business area focus
+    # Detect business area focus with improved matching
     area_keywords = {
-        'sales': ['sales', 'lead', 'client', 'prospect', 'revenue', 'close', 'pipeline', 'acquisition', 'customer'],
-        'delivery': ['delivery', 'project', 'deliver', 'quality', 'process', 'client work', 'standardize', 'efficiency'],
+        'sales': ['sales', 'lead', 'client', 'prospect', 'revenue', 'close', 'pipeline', 'acquisition', 'customer', 'sell', 'selling', 'outreach', 'discovery call'],
+        'delivery': ['delivery', 'project', 'deliver', 'quality', 'client work', 'standardize', 'efficiency', 'workflow'],
         'product': ['product', 'feature', 'development', 'opsbrain', 'build', 'code', 'technical', 'integration'],
-        'financial': ['financial', 'profit', 'margin', 'pricing', 'cost', 'budget', 'roi', 'cash flow'],
+        'financial': ['financial', 'profit', 'margin', 'pricing', 'cost', 'budget', 'roi', 'cash flow', 'metric', 'track'],
         'team': ['team', 'hire', 'contractor', 'employee', 'capacity', 'skills', 'onboard'],
         'process': ['process', 'automate', 'system', 'workflow', 'optimize', 'metrics', 'kpi']
     }
     
     detected_areas = []
+    # Check for specific business area phrases first
+    if 'sales process' in user_lower or 'sales' in user_lower:
+        detected_areas.append('sales')
+    if 'marketing' in user_lower:
+        detected_areas.append('process')  # marketing often relates to process/systems
+    if 'delivery' in user_lower or 'client delivery' in user_lower:
+        detected_areas.append('delivery')
+    if 'financial' in user_lower or 'metric' in user_lower:
+        detected_areas.append('financial')
+        
+    # Then check individual keywords
     for area, keywords in area_keywords.items():
-        if any(keyword in user_lower for keyword in keywords):
+        if area not in detected_areas and any(keyword in user_lower for keyword in keywords):
             detected_areas.append(area)
     
-    # Detect request type - more specific patterns first
-    request_types = {
-        'task_review': ['review all my tasks', 'review my tasks', 'analyze my tasks', 'which tasks should be removed', 'what tasks should i remove', 'task analysis', 'analyze all tasks', 'review all tasks'],
-        'task_cleanup': ['remove tasks', 'clean up tasks', 'delete tasks', 'cleanup tasks', 'remove irrelevant', 'doesnt make sense', "doesn't make sense", 'remove anything'],
-        'task_backlog': ['create all tasks', 'task backlog', 'generate tasks', 'missing tasks', 'all the tasks', 'first customer', 'missing items'],
-        'goal_creation': ['goal', 'create', 'add', 'new objective', 'target'],
-        'progress_update': ['progress', 'update', 'status', 'completed', 'done'],
-        'dashboard': ['dashboard', 'overview', 'summary'],
-        'planning': ['plan', 'strategy', 'next', 'priorities', 'focus'],
-        'research': ['research', 'analyze', 'opportunities', 'market', 'competitor']
-    }
+    # Detect request type - more specific patterns first (ORDER MATTERS)
+    request_types = [
+        ('task_backlog', ['create all tasks', 'task backlog', 'generate tasks', 'missing tasks', 'all the tasks', 'first customer', 'missing items', 'add all missing tasks', 'create missing tasks']),
+        ('task_cleanup', ['remove tasks', 'clean up tasks', 'delete tasks', 'cleanup tasks', 'remove irrelevant', 'doesnt make sense', "doesn't make sense", 'remove anything']),
+        ('task_review', ['review all my tasks', 'review my tasks', 'analyze my tasks', 'which tasks should be removed', 'what tasks should i remove', 'task analysis', 'analyze all tasks', 'review all tasks']),
+        ('goal_creation', ['goal', 'create', 'add', 'new objective', 'target']),
+        ('progress_update', ['progress', 'update', 'status', 'completed', 'done']),
+        ('dashboard', ['dashboard', 'overview', 'summary']),
+        ('planning', ['plan', 'strategy', 'next', 'priorities', 'focus']),
+        ('research', ['research', 'analyze', 'opportunities', 'market', 'competitor'])
+    ]
     
     detected_request_type = 'general'
-    for req_type, keywords in request_types.items():
+    # Check patterns in priority order
+    for req_type, keywords in request_types:
         if any(keyword in user_lower for keyword in keywords):
             detected_request_type = req_type
             break
@@ -1143,6 +1161,8 @@ async def generate_task_backlog(user_text: str, business_goals: Dict, db_info: N
     """Generate a detailed task backlog based on business goals and user request."""
     goal_summary = "\n".join([f"- {g.title}: {g.description}" for g in business_goals.values()])
     
+    example_json = '[{"title": "Example Task", "status": "To Do", "priority": "High", "project": "Marketing", "notes": "Task details"}]'
+    
     prompt = f"""You are OpsBrain, a CEO-level AI assistant specializing in comprehensive task planning.
 
     Business Goals:
@@ -1165,17 +1185,126 @@ async def generate_task_backlog(user_text: str, business_goals: Dict, db_info: N
     Each task must have: title, status, priority (High/Medium/Low), project, notes
     Include SOPs in notes where needed.
     
-    Output as JSON array with complete task coverage - no partial lists.
+    IMPORTANT: You must respond with ONLY a valid JSON array. No explanations, no markdown, no code blocks.
+    Start your response with [ and end with ]. Example format:
+    {example_json}
     """
     
     try:
         ai_message = await llm.ainvoke(prompt)
-        task_list_json = ai_message.content
-        tasks = json.loads(task_list_json)
-        return tasks
+        task_list_json = ai_message.content.strip()
+        
+        # Log the raw response for debugging
+        logger.info(f"OpenAI response length: {len(task_list_json)} chars")
+        logger.info(f"OpenAI response preview: {task_list_json[:200]}...")
+        
+        # Validate response is not empty
+        if not task_list_json:
+            logger.error("OpenAI returned empty response for task backlog generation")
+            return create_fallback_tasks(user_text)
+        
+        # Clean up response - remove markdown code blocks if present
+        if task_list_json.startswith('```'):
+            task_list_json = task_list_json.split('\n', 1)[1]  # Remove first line with ```
+            task_list_json = task_list_json.rsplit('\n', 1)[0]  # Remove last line with ```
+            task_list_json = task_list_json.strip()
+        
+        # Try to parse as JSON
+        try:
+            tasks = json.loads(task_list_json)
+            if not isinstance(tasks, list):
+                logger.error(f"OpenAI response is not a JSON array: {type(tasks)}")
+                return create_fallback_tasks(user_text)
+            
+            # Validate task structure
+            valid_tasks = []
+            for task in tasks:
+                if isinstance(task, dict) and 'title' in task:
+                    # Ensure required fields exist with defaults
+                    validated_task = {
+                        'title': task.get('title', 'Untitled Task'),
+                        'status': task.get('status', 'To Do'),
+                        'priority': task.get('priority', 'Medium'),
+                        'project': task.get('project', 'General'),
+                        'notes': task.get('notes', '')
+                    }
+                    valid_tasks.append(validated_task)
+                else:
+                    logger.warning(f"Skipping invalid task structure: {task}")
+            
+            if valid_tasks:
+                logger.info(f"Successfully parsed {len(valid_tasks)} tasks from OpenAI response")
+                return valid_tasks
+            else:
+                logger.error("No valid tasks found in OpenAI response")
+                return create_fallback_tasks(user_text)
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error: {e}")
+            logger.error(f"Raw response that failed parsing: {task_list_json[:500]}")
+            return create_fallback_tasks(user_text)
+            
     except Exception as e:
         logger.error(f"Error generating task backlog: {e}")
-        return []
+        return create_fallback_tasks(user_text)
+
+def create_fallback_tasks(user_text: str) -> List[Dict]:
+    """Create fallback tasks when OpenAI API fails or returns invalid data."""
+    logger.info("Creating fallback tasks due to OpenAI API issues")
+    
+    # Detect focus areas from user text
+    focus_areas = []
+    user_lower = user_text.lower()
+    
+    if any(word in user_lower for word in ['brand', 'branding', 'marketing', 'content']):
+        focus_areas.extend(['branding', 'marketing', 'content'])
+    if any(word in user_lower for word in ['sales', 'lead', 'client', 'revenue']):
+        focus_areas.append('sales')
+    if any(word in user_lower for word in ['process', 'system', 'automat', 'ops']):
+        focus_areas.append('operations')
+    
+    if not focus_areas:
+        focus_areas = ['marketing', 'sales', 'operations']  # Default areas
+    
+    fallback_tasks = [
+        {
+            'title': 'Define brand positioning and messaging',
+            'status': 'To Do',
+            'priority': 'High',
+            'project': 'Branding',
+            'notes': 'Create clear value proposition and brand guidelines'
+        },
+        {
+            'title': 'Set up content creation system',
+            'status': 'To Do', 
+            'priority': 'High',
+            'project': 'Marketing',
+            'notes': 'Define content calendar, templates, and publishing workflow'
+        },
+        {
+            'title': 'Create marketing automation workflow',
+            'status': 'To Do',
+            'priority': 'Medium', 
+            'project': 'Marketing Systems',
+            'notes': 'Set up email sequences, lead nurturing, and CRM integration'
+        },
+        {
+            'title': 'Build sales pipeline tracking system',
+            'status': 'To Do',
+            'priority': 'High',
+            'project': 'Sales',
+            'notes': 'Implement CRM with lead scoring and conversion tracking'
+        },
+        {
+            'title': 'Document core business processes',
+            'status': 'To Do',
+            'priority': 'Medium',
+            'project': 'Operations',
+            'notes': 'Create SOPs for key workflows and client delivery processes'
+        }
+    ]
+    
+    return fallback_tasks
 
 async def bulk_create_notion_tasks(tasks: List[Dict], channel: str):
     """Create a list of tasks in Notion with rate limiting."""
