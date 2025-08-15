@@ -1152,6 +1152,7 @@ async def get_notion_db_info(database_id: str) -> NotionDBInfo:
     try:
         db = await asyncio.to_thread(notion.databases.retrieve, database_id=database_id)
         properties = {prop_name: prop_data['type'] for prop_name, prop_data in db['properties'].items()}
+        logger.info(f"Available Notion database properties: {list(properties.keys())}")
         return NotionDBInfo(properties=properties)
     except APIResponseError as e:
         logger.error(f"Notion API error while fetching DB info: {e}")
@@ -1328,21 +1329,34 @@ async def bulk_create_notion_tasks(tasks: List[Dict], channel: str):
     async def create_task_with_retry(task):
         nonlocal success_count
         try:
-            await asyncio.to_thread(create_notion_task, **task)
-            success_count += 1
+            result = await asyncio.to_thread(create_notion_task, **task)
+            if result:  # Only count as success if create_notion_task returns True
+                success_count += 1
+            else:
+                failed_tasks.append(task.get('title', 'Unknown Task'))
         except Exception as e:
-            logger.error(f"Failed to create task '{task.get('title')}': {e}")
-            failed_tasks.append(task.get('title'))
+            logger.error(f"Exception creating task '{task.get('title')}': {e}")
+            failed_tasks.append(task.get('title', 'Unknown Task'))
         await asyncio.sleep(0.5)  # Rate limiting
 
     # Create tasks concurrently with proper async handling
     tasks_to_create = [create_task_with_retry(task) for task in tasks]
     await asyncio.gather(*tasks_to_create)
 
-    # Final report
-    final_message = f"✅ Successfully created {success_count}/{total_tasks} tasks in Notion."
-    if failed_tasks:
-        final_message += f"\n❌ Failed to create: {", ".join(failed_tasks)}"
+    # Final report with honest results
+    if success_count == 0:
+        final_message = f"❌ **Task Creation Failed** ({success_count}/{total_tasks} created)\n\n"
+        final_message += "**Issue:** Database property mismatch - your Notion database doesn't have the expected properties.\n\n"
+        if failed_tasks:
+            final_message += f"**Failed tasks:** {', '.join(failed_tasks[:5])}{'...' if len(failed_tasks) > 5 else ''}\n\n"
+        final_message += "💡 **Fix:** Check your Notion database has these properties: Task (title), Status (select), Priority (select), Notes (rich text)"
+    elif success_count < total_tasks:
+        final_message = f"⚠️ **Partial Success** ({success_count}/{total_tasks} created)\n\n"
+        if failed_tasks:
+            final_message += f"**Failed:** {', '.join(failed_tasks[:3])}{'...' if len(failed_tasks) > 3 else ''}\n\n"
+        final_message += "💡 Some tasks failed due to database property issues."
+    else:
+        final_message = f"✅ **All Tasks Created Successfully** ({success_count}/{total_tasks})\n\nYour task backlog is ready! Check your Notion database."
     
     requests.post("https://slack.com/api/chat.postMessage", headers={
         "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
@@ -1353,30 +1367,83 @@ async def bulk_create_notion_tasks(tasks: List[Dict], channel: str):
     })
 def create_notion_task(title: str, status: str = "To Do", priority: str = "Medium", 
                       project: str = None, due_date: str = None, notes: str = None) -> bool:
-    """Create a new task in the Notion tasks database."""
+    """Create a new task in the Notion tasks database with smart property detection."""
     try:
-        properties = {
-            "Task": {"title": [{"text": {"content": title}}]},
-            "Status": {"select": {"name": status}}
-        }
+        # Get database schema to check available properties
+        try:
+            db_info = notion.databases.retrieve(database_id=NOTION_DB_ID)
+            available_props = set(db_info['properties'].keys())
+            logger.info(f"Available properties: {list(available_props)}")
+        except Exception as e:
+            logger.error(f"Could not retrieve database schema: {e}")
+            available_props = set()
         
-        if priority:
+        # Build properties based on what's actually available in the database
+        properties = {}
+        
+        # Task title (required)
+        if "Task" in available_props:
+            properties["Task"] = {"title": [{"text": {"content": title}}]}
+        elif "Name" in available_props:
+            properties["Name"] = {"title": [{"text": {"content": title}}]}
+        elif "Title" in available_props:
+            properties["Title"] = {"title": [{"text": {"content": title}}]}
+        else:
+            # Find the first title property
+            for prop_name, prop_data in db_info['properties'].items():
+                if prop_data['type'] == 'title':
+                    properties[prop_name] = {"title": [{"text": {"content": title}}]}
+                    break
+        
+        # Status (if available)
+        if "Status" in available_props and status:
+            properties["Status"] = {"select": {"name": status}}
+        
+        # Priority (if available)  
+        if "Priority" in available_props and priority:
             properties["Priority"] = {"select": {"name": priority}}
+            
+        # Project - try different property names
         if project:
-            properties["Project"] = {"rich_text": [{"text": {"content": project}}]}
-        if due_date:
+            if "Project" in available_props:
+                properties["Project"] = {"rich_text": [{"text": {"content": project}}]}
+            elif "Category" in available_props:
+                properties["Category"] = {"rich_text": [{"text": {"content": project}}]}
+            elif "Area" in available_props:
+                properties["Area"] = {"rich_text": [{"text": {"content": project}}]}
+            else:
+                # Skip project if no suitable property found
+                logger.warning(f"No suitable property found for project '{project}', skipping")
+        
+        # Due Date (if available)
+        if "Due Date" in available_props and due_date:
             properties["Due Date"] = {"date": {"start": due_date}}
+        elif "Due" in available_props and due_date:
+            properties["Due"] = {"date": {"start": due_date}}
+            
+        # Notes (if available)
         if notes:
-            properties["Notes"] = {"rich_text": [{"text": {"content": notes}}]}
+            if "Notes" in available_props:
+                properties["Notes"] = {"rich_text": [{"text": {"content": notes}}]}
+            elif "Description" in available_props:
+                properties["Description"] = {"rich_text": [{"text": {"content": notes}}]}
+            elif "Details" in available_props:
+                properties["Details"] = {"rich_text": [{"text": {"content": notes}}]}
+            else:
+                # Skip notes if no suitable property found
+                logger.warning(f"No suitable property found for notes, skipping")
+        
+        if not properties:
+            raise ValueError("Could not map any properties to create the task")
         
         notion.pages.create(
             parent={"database_id": NOTION_DB_ID},
             properties=properties
         )
-        logger.info(f"Created task in Notion: {title}")
+        logger.info(f"✅ Successfully created task in Notion: {title}")
         return True
     except Exception as e:
-        logger.error(f"Failed to create Notion task: {e}")
+        logger.error(f"❌ Failed to create Notion task '{title}': {e}")
         return False
 
 def update_notion_task(task_id: str, status: str = None, priority: str = None, 
@@ -2127,8 +2194,8 @@ async def slack_events(req: Request):
                                     logger.error(f"Error in task review: {e}")
                                     ai_response = f"📋 I'll review your tasks and provide recommendations.\n\n⚠️ There was an issue starting the analysis: {str(e)}"
                             elif analysis['request_type'] == 'task_backlog':
-                                # Trigger async task backlog generation
-                                ai_response = "🤖 I understand you want me to generate a task backlog. Let me analyze your business goals and create comprehensive tasks for you. This process will run in the background, and I'll update you with progress."
+                                # For task backlog, skip AI response and let the async process handle everything
+                                ai_response = None  # Don't send duplicate response
                                 # Start the async task generation process safely
                                 try:
                                     # Check if there's already an event loop running
@@ -2150,7 +2217,7 @@ async def slack_events(req: Request):
                                             loop.close()
                                 except Exception as e:
                                     logger.error(f"Error in task backlog generation: {e}")
-                                    ai_response += "\n\n⚠️ There was an issue starting the task backlog generation. Please try again later."
+                                    ai_response = f"❌ Failed to start task backlog generation: {str(e)}"
                             # Only handle other cases if we didn't already handle task_cleanup or task_backlog
                             else:
                                 # Use new persona-based prompt system
@@ -2205,25 +2272,29 @@ async def slack_events(req: Request):
                             logger.error(f"OpenAI API error: {e}")
                             ai_response = "Sorry, I'm having trouble generating a response right now."
                     
-                    # Update thread context with AI response
-                    update_thread_context(None, channel, ai_response)
-                    
-                    # Post response directly in the channel
-                    try:
-                        slack_response = requests.post("https://slack.com/api/chat.postMessage", headers={
-                            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
-                            "Content-type": "application/json"
-                        }, json={
-                            "channel": channel,
-                            "text": add_version_timestamp(ai_response)
-                        }, timeout=10)
+                    # Only send response if ai_response is not None (avoid duplicates)
+                    if ai_response is not None:
+                        # Update thread context with AI response
+                        update_thread_context(None, channel, ai_response)
                         
-                        if not slack_response.ok:
-                            logger.error(f"Slack API error: {slack_response.status_code} - {slack_response.text}")
-                        else:
-                            logger.info("Successfully sent slash command response")
-                    except requests.RequestException as e:
-                        logger.error(f"Failed to send message to Slack: {e}")
+                        # Post response directly in the channel
+                        try:
+                            slack_response = requests.post("https://slack.com/api/chat.postMessage", headers={
+                                "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+                                "Content-type": "application/json"
+                            }, json={
+                                "channel": channel,
+                                "text": add_version_timestamp(ai_response)
+                            }, timeout=10)
+                            
+                            if not slack_response.ok:
+                                logger.error(f"Slack API error: {slack_response.status_code} - {slack_response.text}")
+                            else:
+                                logger.info("Successfully sent slash command response")
+                        except requests.RequestException as e:
+                            logger.error(f"Failed to send message to Slack: {e}")
+                    else:
+                        logger.info("Skipped duplicate response - async process will handle communication")
                         
                 except Exception as e:
                     logger.error(f"Error in delayed response: {e}")
