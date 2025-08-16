@@ -214,6 +214,13 @@ class TestFastAPIStartupIntegration:
     
     def test_production_simulation(self):
         """Simulate production-like conditions to catch edge cases"""
+        # Need to import before patching environment to properly reload TEST_MODE
+        import sys
+        
+        # Remove main module from cache so it reloads with new environment
+        if 'main' in sys.modules:
+            del sys.modules['main']
+        
         with patch.dict(os.environ, {
             'TEST_MODE': 'false',  # Simulate production mode
             'SLACK_BOT_TOKEN': 'test_token',
@@ -232,6 +239,7 @@ class TestFastAPIStartupIntegration:
                 mock_notion.return_value.users.me.return_value = {"name": "test"}
                 mock_openai.return_value.invoke.return_value.content = "test response"
                 
+                # Import after environment patch
                 from main import app
                 
                 with TestClient(app) as client:
@@ -242,6 +250,7 @@ class TestFastAPIStartupIntegration:
                     # Test that production mode differences don't break anything
                     data = response.json()
                     assert data["status"] == "healthy"
+                    # Since we're importing after env patch, this should be False
                     assert data["test_mode"] == False
 
 class TestAsyncContextValidation:
