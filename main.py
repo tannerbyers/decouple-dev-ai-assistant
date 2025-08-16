@@ -24,6 +24,9 @@ from concurrent.futures import ThreadPoolExecutor
 # Initialize FastAPI application
 app = FastAPI()
 
+# Global health monitor reference for lifecycle management
+_app_health_monitor = None
+
 # Deployment verification: asyncio import fix applied (v2025-01-15)
 
 # Environment variables
@@ -617,8 +620,11 @@ try:
     health_monitor.register_health_check(SystemComponent.NOTION_API, check_notion_api_health)
     health_monitor.register_health_check(SystemComponent.OPENAI_API, check_openai_api_health)
     
-    # Start health monitoring
-    health_monitor.start_monitoring()
+    # Store health monitor for startup event
+    _app_health_monitor = health_monitor
+    
+    # Health monitoring will be started in the startup event
+    logger.info("Health monitoring registered - will start on FastAPI startup")
     
 except Exception as e:
     logger.error(f"Failed to initialize self-healing system: {e}")
@@ -2815,6 +2821,49 @@ Respond:"""
         return {"ok": True}
 
     return {"ok": True}
+
+# FastAPI startup and shutdown event handlers
+@app.on_event("startup")
+async def startup_event():
+    """Initialize async services on application startup."""
+    global _app_health_monitor
+    
+    logger.info("FastAPI application starting up...")
+    
+    # Start health monitoring if available
+    if _app_health_monitor:
+        try:
+            # Start monitoring in the FastAPI async context
+            logger.info("Starting health monitoring in async context")
+            _app_health_monitor.monitoring_active = True
+            
+            # Create the monitoring task in the current event loop
+            asyncio.create_task(_app_health_monitor._monitoring_loop())
+            
+            logger.info("✅ Health monitoring started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start health monitoring: {e}")
+    else:
+        logger.info("No health monitor available - self-healing system not initialized")
+    
+    logger.info("FastAPI startup complete")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on application shutdown."""
+    global _app_health_monitor
+    
+    logger.info("FastAPI application shutting down...")
+    
+    # Stop health monitoring if running
+    if _app_health_monitor and _app_health_monitor.monitoring_active:
+        try:
+            _app_health_monitor.stop_monitoring()
+            logger.info("Health monitoring stopped")
+        except Exception as e:
+            logger.error(f"Error stopping health monitoring: {e}")
+    
+    logger.info("FastAPI shutdown complete")
 
 # Integrate dashboard with the FastAPI app
 try:
