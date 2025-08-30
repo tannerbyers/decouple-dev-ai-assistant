@@ -20,4 +20,3 @@ streamlit>=1.25.0
 pytest-asyncio
 selenium
 webdriver-manager
-strands-python>=0.2.0
