@@ -1,0 +1,58 @@
+# Priority Engine Configuration
+# Defines scoring weights and business multipliers for deterministic task prioritization
+
+scoring_weights:
+  revenue_impact: 3.0      # Highest weight - direct revenue generation
+  time_to_impact: 2.0      # Speed of seeing results
+  effort_efficiency: 1.5   # Effort vs impact ratio (ROI)
+  strategic_value: 1.0     # Long-term strategic importance
+  urgency: 1.0            # Time sensitivity and deadlines
+  business_alignment: 0.5  # Alignment with current business goals
+
+# Business stage multipliers adjust scoring based on company maturity
+business_multipliers:
+  early_stage:
+    revenue_impact: 1.5    # Prioritize immediate revenue
+    strategic_value: 0.8   # Less focus on long-term strategy
+    effort_efficiency: 1.2 # Favor quick wins
+    
+  growth_stage:
+    revenue_impact: 1.3    # Still prioritize revenue but less extreme
+    strategic_value: 1.2   # More focus on building systems
+    effort_efficiency: 1.0 # Balanced approach
+    
+  mature_stage:
+    revenue_impact: 1.0    # Standard revenue focus
+    strategic_value: 1.5   # Heavy focus on strategic initiatives
+    effort_efficiency: 0.9 # Can afford larger investments
+
+# Priority scoring thresholds
+scoring_thresholds:
+  critical: 15.0    # Exceptional priority tasks
+  high: 12.0        # High priority tasks
+  medium: 8.0       # Medium priority tasks
+  low: 4.0          # Low priority tasks
+
+# Daily work constraints
+daily_constraints:
+  max_task_hours: 8        # Maximum hours for a single daily task
+  preferred_task_hours: 4  # Preferred task duration
+  minimum_impact_score: 6.0 # Minimum score for daily consideration
+
+# Area-based multipliers for different business functions
+area_multipliers:
+  sales: 1.5        # Sales tasks get highest multiplier
+  marketing: 1.3    # Marketing second highest
+  delivery: 1.2     # Client delivery important
+  operations: 1.1   # Operations maintenance
+  finance: 1.0      # Financial tasks standard
+  product: 1.0      # Product development standard
+  team: 0.8         # Team tasks lower priority unless critical
+
+# Confidence scoring factors
+confidence_factors:
+  title_present: 0.2
+  description_present: 0.2
+  effort_estimate_present: 0.2
+  due_date_present: 0.2
+  project_assigned: 0.2

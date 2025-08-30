@@ -1,0 +1,76 @@
+# Agent Configuration for Orchestrator System
+# Defines routing rules, agent capabilities, and prompt templates
+
+routing_rules:
+  task_create: "task_manager"
+  task_update: "task_manager"
+  task_complete: "task_manager"
+  task_remove: "task_manager"
+  task_discovery: "task_discovery"
+  priority_ranking: "priority_engine"
+  daily_priority: "priority_engine"
+  chat_task_add: "chat_handler"
+  gap_analysis: "task_discovery"
+  weekly_planning: "task_discovery"
+
+agents:
+  task_manager:
+    name: "Task Manager Agent"
+    description: "Handles CRUD operations for tasks with Notion integration"
+    capabilities:
+      - "create_task"
+      - "update_task"
+      - "complete_task"
+      - "remove_task"
+      - "list_tasks"
+      - "bulk_operations"
+    prompt_template: "task_manager_prompt.yaml"
+    timeout_seconds: 30
+    retry_attempts: 2
+    
+  task_discovery:
+    name: "Task Discovery Agent"
+    description: "Identifies missing tasks and business gaps"
+    capabilities:
+      - "analyze_gaps"
+      - "suggest_tasks"
+      - "business_analysis"
+      - "foundational_tasks"
+      - "weekly_candidates"
+    prompt_template: "task_discovery_prompt.yaml"
+    timeout_seconds: 45
+    retry_attempts: 2
+    
+  priority_engine:
+    name: "Priority Engine Agent"
+    description: "Scores and ranks tasks deterministically"
+    capabilities:
+      - "score_tasks"
+      - "rank_priorities"
+      - "daily_selection"
+      - "criteria_ranking"
+    prompt_template: "priority_engine_prompt.yaml"
+    timeout_seconds: 30
+    retry_attempts: 1
+    deterministic: true
+    
+  chat_handler:
+    name: "Chat Interface Handler"
+    description: "Processes natural language task requests"
+    capabilities:
+      - "parse_chat"
+      - "extract_tasks"
+      - "natural_language"
+      - "intent_recognition"
+    prompt_template: "chat_handler_prompt.yaml"
+    timeout_seconds: 20
+    retry_attempts: 2
+
+# Global settings
+global_settings:
+  max_concurrent_agents: 3
+  default_timeout: 30
+  logging_level: "INFO"
+  retry_delay_seconds: 2
+  circuit_breaker_threshold: 5
+  circuit_breaker_timeout: 300  # 5 minutes

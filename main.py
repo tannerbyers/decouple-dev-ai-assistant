@@ -12,6 +12,10 @@ from src.self_healing import (
     self_healing, with_circuit_breaker, error_recovery_context,
     SystemComponent, ErrorSeverity, check_system_resources
 )
+from src.agent_integration import (
+    initialize_agent_integration, get_agent_integration,
+    agent_process_request, agent_get_daily_priority, agent_add_task_from_chat
+)
 import os, requests, json, hmac, hashlib, time, logging, datetime, subprocess, sys, re
 from typing import Optional, Dict, List, Tuple, Any
 from notion_client.errors import APIResponseError
@@ -580,6 +584,14 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize enhanced task operations: {e}")
     enhanced_tasks = None
+
+# Initialize agent system with error handling
+try:
+    agent_integration = initialize_agent_integration(notion, NOTION_DB_ID)
+    logger.info("🤖 Agent system initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize agent system: {e}")
+    agent_integration = None
 
 # Initialize self-healing system with error handling
 try:
@@ -1186,6 +1198,56 @@ def generate_planning_response(dashboard: Dict, areas: List[str]) -> str:
     
     response += "💡 Remember: Focus on activities that move the revenue needle first."
     return response
+
+async def _legacy_prompt_processing(user_text: str, tasks: List[str], business_goals: Dict, analysis: Dict, context: Dict) -> str:
+    """Legacy prompt processing system as fallback when agent orchestrator isn't available."""
+    try:
+        # Use new persona-based prompt system
+        context_obj = PromptContext(
+            user_text=user_text,
+            tasks=tasks,
+            business_goals=business_goals,
+            dashboard_data=get_ceo_dashboard(),
+            conversation_context=context['messages'],
+            detected_areas=analysis.get('detected_areas', []),
+            task_count=len(tasks)
+        )
+        
+        # Check for bulk operations first
+        bulk_operation = BulkOperationParser.parse_bulk_request(user_text)
+        
+        if bulk_operation and enhanced_tasks:
+            # Execute bulk operation with proper async handling
+            try:
+                # Run the async operation in the event loop
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(enhanced_tasks.execute_bulk_operation(bulk_operation))
+                    ai_response = f"🔧 **Bulk Operation Result:**\n{result.message}"
+                    if result.errors:
+                        ai_response += f"\n\n⚠️ Errors: {'; '.join(result.errors[:3])}"
+                finally:
+                    loop.close()
+            except Exception as e:
+                logger.error(f"Bulk operation error: {e}")
+                ai_response = f"❌ Error executing bulk operation: {str(e)}"
+        else:
+            # Generate persona-appropriate prompt and get AI response
+            persona_prompt = prompt_manager.generate_prompt(context_obj)
+            
+            # Log classification for debugging
+            classification = prompt_manager.get_request_classification(user_text, analysis.get('detected_areas', []))
+            logger.info(f"Request classified as: {classification['persona']} for {classification['request_type']}")
+            
+            # Get AI response using persona prompt
+            ai_message = llm.invoke(persona_prompt)
+            ai_response = ai_message.content
+        
+        return ai_response
+    except Exception as e:
+        logger.error(f"Error in legacy prompt processing: {e}")
+        return f"Sorry, I'm having trouble processing your request: {str(e)}"
 
 async def handle_task_backlog_request(user_text: str, business_goals: Dict, channel: str):
     """Handle the asynchronous task backlog generation and posting to Notion."""
@@ -2494,47 +2556,53 @@ async def slack_events(req: Request):
                                     ai_response = f"❌ Failed to start task backlog generation: {str(e)}"
                             # Only handle other cases if we didn't already handle task_cleanup or task_backlog
                             else:
-                                # Use new persona-based prompt system
-                                context_obj = PromptContext(
-                                    user_text=user_text,
-                                    tasks=tasks,
-                                    business_goals=business_goals,
-                                    dashboard_data=get_ceo_dashboard(),
-                                    conversation_context=context['messages'],
-                                    detected_areas=analysis.get('detected_areas', []),
-                                    task_count=len(tasks)
-                                )
-                                
-                                # Check for bulk operations first
-                                bulk_operation = BulkOperationParser.parse_bulk_request(user_text)
-                                
-                                if bulk_operation and enhanced_tasks:
-                                    # Execute bulk operation with proper async handling
+                                # Try the new agent orchestrator system first
+                                if agent_integration:
                                     try:
-                                        # Run the async operation in the event loop
+                                        logger.info("Processing request through agent orchestrator...")
+                                        
+                                        # Process request through agent orchestrator in async context
+                                        try:
+                                            # We're in a background thread, so create new event loop
+                                            loop = asyncio.new_event_loop()
+                                            asyncio.set_event_loop(loop)
+                                            try:
+                                                agent_result = loop.run_until_complete(agent_process_request(
+                                                    user_text=user_text,
+                                                    context={'tasks': tasks, 'business_goals': business_goals}
+                                                ))
+                                            finally:
+                                                loop.close()
+                                        except Exception as loop_error:
+                                            logger.error(f"Failed to create event loop for agent processing: {loop_error}")
+                                            raise
+                                        
+                                        if agent_result and agent_result.get('success'):
+                                            ai_response = agent_result.get('response', 'Agent processed request successfully')
+                                            logger.info(f"Agent orchestrator handled request: {agent_result.get('agent_used', 'unknown')}")
+                                        else:
+                                            # Fall back to legacy system
+                                            logger.info("Agent orchestrator couldn't handle request, falling back to legacy system")
+                                            raise Exception("Agent processing failed, using fallback")
+                                            
+                                    except Exception as e:
+                                        logger.warning(f"Agent orchestrator failed, using legacy system: {e}")
+                                        # Fall back to legacy persona-based system
                                         loop = asyncio.new_event_loop()
                                         asyncio.set_event_loop(loop)
                                         try:
-                                            result = loop.run_until_complete(enhanced_tasks.execute_bulk_operation(bulk_operation))
-                                            ai_response = f"🔧 **Bulk Operation Result:**\n{result.message}"
-                                            if result.errors:
-                                                ai_response += f"\n\n⚠️ Errors: {'; '.join(result.errors[:3])}"
+                                            ai_response = loop.run_until_complete(_legacy_prompt_processing(user_text, tasks, business_goals, analysis, context))
                                         finally:
                                             loop.close()
-                                    except Exception as e:
-                                        logger.error(f"Bulk operation error: {e}")
-                                        ai_response = f"❌ Error executing bulk operation: {str(e)}"
                                 else:
-                                    # Generate persona-appropriate prompt and get AI response
-                                    persona_prompt = prompt_manager.generate_prompt(context_obj)
-                                    
-                                    # Log classification for debugging
-                                    classification = prompt_manager.get_request_classification(user_text, analysis.get('detected_areas', []))
-                                    logger.info(f"Request classified as: {classification['persona']} for {classification['request_type']}")
-                                    
-                                    # Get AI response using persona prompt
-                                    ai_message = llm.invoke(persona_prompt)
-                                    ai_response = ai_message.content
+                                    logger.info("Agent orchestrator not available, using legacy system")
+                                    # Fall back to legacy persona-based system
+                                    loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(loop)
+                                    try:
+                                        ai_response = loop.run_until_complete(_legacy_prompt_processing(user_text, tasks, business_goals, analysis, context))
+                                    finally:
+                                        loop.close()
                             
                             # If database action was executed, prepend the result to the AI response
                             if db_result:
