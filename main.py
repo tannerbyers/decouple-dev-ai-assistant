@@ -2568,7 +2568,7 @@ async def slack_events(req: Request):
                                             asyncio.set_event_loop(loop)
                                             try:
                                                 agent_result = loop.run_until_complete(agent_process_request(
-                                                    user_text=user_text,
+                                                    user_input=user_text,
                                                     context={'tasks': tasks, 'business_goals': business_goals}
                                                 ))
                                             finally:

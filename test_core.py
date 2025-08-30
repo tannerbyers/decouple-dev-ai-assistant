@@ -7,8 +7,12 @@ without fragile edge cases or over-mocking.
 
 import pytest
 import asyncio
+import os
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
+
+# Set TEST_MODE before importing main to avoid env var requirements
+os.environ['TEST_MODE'] = 'true'
 
 # Import the app and key functions
 from main import app, fetch_open_tasks, analyze_business_request, parse_database_request
